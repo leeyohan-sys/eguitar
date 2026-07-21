@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+/* 일렉기타 연습 앱 — 앰버 액센트 다크 테마 */
+:root {
+  --bg: #0c0a09;
+  --surface: #1c1917;
+  --surface-2: #292524;
+  --border: #44403c;
+  --text: #fafaf9;
+  --muted: #a8a29e;
+  --accent: #f59e0b;
+  --accent-dim: #d97706;
+  --success: #22c55e;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard", "Segoe UI", system-ui, -apple-system, sans-serif;
+  overscroll-behavior: none;
+}
+
+/* 축하 오버레이 페이드 인 */
+@keyframes celebrate-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-celebrate {
+  animation: celebrate-in 0.35s ease-out;
+}
+
+/* 타이머 초 단위 미세 펄스 */
+@keyframes tick-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.timer-running {
+  animation: tick-pulse 1s ease-in-out infinite;
+}
