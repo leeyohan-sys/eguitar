@@ -1516,7 +1516,7 @@ export default function App() {
                 </button>
               </div>
 
-              <ul className="grid gap-3">
+              <ul className="grid gap-3 lg:grid-cols-2">
                 {steps.map((step) => {
                   const isActive = activeStep === step.id
                   const isFinished = notifiedEnds.includes(step.id)
