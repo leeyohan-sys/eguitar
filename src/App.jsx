@@ -11,6 +11,7 @@ import {
   Music2,
   Video,
 } from 'lucide-react'
+import FretboardQuiz, { FretboardIcon } from './FretboardQuiz.jsx'
 import {
   loadAllStepImages,
   loadCompletedDates,
@@ -833,6 +834,7 @@ export default function App() {
   const [stepImages, setStepImages] = useState({ 0: '', 1: '' })
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
+  const [showFretboardQuiz, setShowFretboardQuiz] = useState(false)
 
   const stepsRef = useRef(steps)
   stepsRef.current = steps
@@ -1422,6 +1424,16 @@ export default function App() {
                 </>
               )}
             </button>
+
+            {/* 기타 자판 외우기 퀴즈 */}
+            <button
+              type="button"
+              onClick={() => setShowFretboardQuiz(true)}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm font-bold text-amber-300 transition hover:bg-amber-500/20"
+            >
+              <FretboardIcon size={20} />
+              Fretboard Drill
+            </button>
           </aside>
 
           {/* 타이머 + 루틴 — 모바일에서 최상단 */}
@@ -1684,6 +1696,11 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      <FretboardQuiz
+        open={showFretboardQuiz}
+        onClose={() => setShowFretboardQuiz(false)}
+      />
 
       {/* 팝업 차단 안내 */}
       {popupNotice && (
