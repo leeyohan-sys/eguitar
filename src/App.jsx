@@ -11,9 +11,22 @@ import {
   Music2,
   Video,
 } from 'lucide-react'
-import { loadAllStepImages, loadCompletedDates, loadTimerState, saveCompletedDates, saveStepImage, saveTimerState } from './practiceStore.js'
+import {
+  loadAllStepImages,
+  loadCompletedDates,
+  loadStepDurations,
+  loadTimerState,
+  saveCompletedDates,
+  saveStepDurations,
+  saveStepImage,
+  saveTimerState,
+} from './practiceStore.js'
 
-const TOTAL_SECONDS = 60 * 60 // 전체 60분
+/** 기본 단계 시간(분): Stroke / Scale / Melody / Free */
+const DEFAULT_STEP_DURATIONS_MIN = [10, 10, 10, 30]
+const MIN_STEP_MINUTES = 1
+const MAX_STEP_MINUTES = 120
+
 /** 이미지 업로드를 지원하는 단계 */
 const STEP_IMAGE_CONFIG = {
   0: { windowName: 'eguitar-stroke-image' },
@@ -21,8 +34,42 @@ const STEP_IMAGE_CONFIG = {
 }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-/** 각 단계가 끝나는 경과 초 (0=1단계 종료 … 3=전체 종료) */
-const STEP_END_AT = [10 * 60, 20 * 60, 30 * 60, 60 * 60]
+/** 단계 시간(분) 정규화 */
+function normalizeStepDurations(durations) {
+  if (!Array.isArray(durations) || durations.length !== 4) {
+    return [...DEFAULT_STEP_DURATIONS_MIN]
+  }
+  return durations.map((value) => {
+    const n = Math.round(Number(value))
+    if (!Number.isFinite(n)) return MIN_STEP_MINUTES
+    return Math.min(MAX_STEP_MINUTES, Math.max(MIN_STEP_MINUTES, n))
+  })
+}
+
+/** 단계 시간으로 시작/종료 초·전체 초 계산 */
+function buildStepSchedule(durationsMin) {
+  const mins = normalizeStepDurations(durationsMin)
+  const startSecs = []
+  const endAts = []
+  let cursor = 0
+  mins.forEach((min) => {
+    startSecs.push(cursor)
+    cursor += min * 60
+    endAts.push(cursor)
+  })
+  return {
+    durationsMin: mins,
+    startSecs,
+    endAts,
+    totalSeconds: cursor,
+  }
+}
+
+/** 초 구간을 분 표시로 (예: 00–10 min) */
+function formatMinuteRange(startSec, endSec) {
+  const toMin = (sec) => String(Math.floor(sec / 60)).padStart(2, '0')
+  return `${toMin(startSec)}–${toMin(endSec)} min`
+}
 
 /** YYYY-MM-DD 형식으로 날짜 키 생성 */
 function toDateKey(date) {
@@ -288,25 +335,25 @@ function openMelodyYoutubeWindow(existingWindow, chords, guideText) {
 }
 
 /** 경과 초(elapsed)로 현재 단계 인덱스 계산 */
-function stepIndexFromElapsed(elapsed) {
-  if (elapsed < 10 * 60) return 0
-  if (elapsed < 20 * 60) return 1
-  if (elapsed < 30 * 60) return 2
-  return 3
+function stepIndexFromElapsed(elapsed, endAts) {
+  for (let i = 0; i < endAts.length; i += 1) {
+    if (elapsed < endAts[i]) return i
+  }
+  return Math.max(0, endAts.length - 1)
 }
 
 /** 경과 시간 기준으로 이미 끝난 단계 id 목록 */
-function getFinishedStepIds(elapsed) {
-  return STEP_END_AT.map((endAt, id) => (elapsed >= endAt ? id : null)).filter(
+function getFinishedStepIds(elapsed, endAts) {
+  return endAts.map((endAt, id) => (elapsed >= endAt ? id : null)).filter(
     (id) => id !== null,
   )
 }
 
 /** 저장된 타이머 상태를 화면용 값으로 변환 */
-function hydrateTimerState(saved) {
+function hydrateTimerState(saved, totalSeconds) {
   if (!saved) {
     return {
-      remaining: TOTAL_SECONDS,
+      remaining: totalSeconds,
       running: false,
       endAt: null,
       notifiedEnds: [],
@@ -315,14 +362,16 @@ function hydrateTimerState(saved) {
   if (saved.running && saved.endAt) {
     const rem = remainingFromEndAt(saved.endAt)
     return {
-      remaining: rem,
+      remaining: Math.min(rem, totalSeconds),
       running: rem > 0,
       endAt: rem > 0 ? saved.endAt : null,
       notifiedEnds: Array.isArray(saved.notifiedEnds) ? saved.notifiedEnds : [],
     }
   }
+  const remaining =
+    typeof saved.remaining === 'number' ? saved.remaining : totalSeconds
   return {
-    remaining: typeof saved.remaining === 'number' ? saved.remaining : TOTAL_SECONDS,
+    remaining: Math.min(Math.max(0, remaining), totalSeconds),
     running: false,
     endAt: null,
     notifiedEnds: Array.isArray(saved.notifiedEnds) ? saved.notifiedEnds : [],
@@ -671,7 +720,7 @@ async function fireStepAlarm(step, isSessionEnd) {
     navigator.vibrate(isSessionEnd ? [300, 120, 300, 120, 400] : [220, 100, 220])
   }
 
-  const title = isSessionEnd ? '60-min practice complete!' : `${step.label} complete`
+  const title = isSessionEnd ? 'Practice session complete!' : `${step.label} complete`
   const body = isSessionEnd
     ? 'Full session finished. Nice work!'
     : `${step.title} is done. Move on to the next block.`
@@ -680,7 +729,7 @@ async function fireStepAlarm(step, isSessionEnd) {
     try {
       new Notification(title, {
         body,
-        icon: '/favicon.svg',
+        icon: `${import.meta.env.BASE_URL}favicon.svg`,
         tag: `eguitar-step-${step.id}`,
         renotify: true,
       })
@@ -721,49 +770,57 @@ export default function App() {
     [today],
   )
 
+  const [stepDurationsMin, setStepDurationsMin] = useState(DEFAULT_STEP_DURATIONS_MIN)
+
+  const schedule = useMemo(
+    () => buildStepSchedule(stepDurationsMin),
+    [stepDurationsMin],
+  )
+  const { endAts: stepEndAts, startSecs: stepStartSecs, totalSeconds } = schedule
+
   const steps = useMemo(
     () => [
       {
         id: 0,
         label: 'Step 1',
-        range: '00–10 min',
+        range: formatMinuteRange(stepStartSecs[0], stepEndAts[0]),
         title: 'Stroke Practice',
         detail: 'Rhythm & picking accuracy',
-        durationMin: 10,
-        startSec: 0,
+        durationMin: stepDurationsMin[0],
+        startSec: stepStartSecs[0],
       },
       {
         id: 1,
         label: 'Step 2',
-        range: '10–20 min',
+        range: formatMinuteRange(stepStartSecs[1], stepEndAts[1]),
         title: 'Scale Practice',
         detail: 'Position shifts & fretting',
-        durationMin: 10,
-        startSec: 10 * 60,
+        durationMin: stepDurationsMin[1],
+        startSec: stepStartSecs[1],
       },
       {
         id: 2,
         label: 'Step 3',
-        range: '20–30 min',
+        range: formatMinuteRange(stepStartSecs[2], stepEndAts[2]),
         title: 'Melody Line Playing',
         detail: melodyGuide,
-        durationMin: 10,
-        startSec: 20 * 60,
+        durationMin: stepDurationsMin[2],
+        startSec: stepStartSecs[2],
       },
       {
         id: 3,
         label: 'Step 4',
-        range: '30–60 min',
+        range: formatMinuteRange(stepStartSecs[3], stepEndAts[3]),
         title: 'Free Practice',
         detail: 'Open session — play what you want',
-        durationMin: 30,
-        startSec: 30 * 60,
+        durationMin: stepDurationsMin[3],
+        startSec: stepStartSecs[3],
       },
     ],
-    [melodyGuide],
+    [melodyGuide, stepDurationsMin, stepStartSecs, stepEndAts],
   )
 
-  const [remaining, setRemaining] = useState(TOTAL_SECONDS)
+  const [remaining, setRemaining] = useState(DEFAULT_STEP_DURATIONS_MIN.reduce((a, b) => a + b, 0) * 60)
   const [running, setRunning] = useState(false)
   const [endAt, setEndAt] = useState(null)
   const [notifiedEnds, setNotifiedEnds] = useState([])
@@ -779,6 +836,10 @@ export default function App() {
 
   const stepsRef = useRef(steps)
   stepsRef.current = steps
+  const totalSecondsRef = useRef(totalSeconds)
+  totalSecondsRef.current = totalSeconds
+  const stepEndAtsRef = useRef(stepEndAts)
+  stepEndAtsRef.current = stepEndAts
   const notifiedRef = useRef(notifiedEnds)
   notifiedRef.current = notifiedEnds
   const stepFileRefs = useRef({})
@@ -786,8 +847,8 @@ export default function App() {
   const melodyYoutubeWindowRef = useRef(null)
   const prevActiveStepRef = useRef(0)
 
-  const elapsed = TOTAL_SECONDS - remaining
-  const activeStep = stepIndexFromElapsed(elapsed)
+  const elapsed = totalSeconds - remaining
+  const activeStep = stepIndexFromElapsed(elapsed, stepEndAts)
   const isTodayDone = completedDates.includes(todayKey)
   const isTodayDoneRef = useRef(isTodayDone)
   isTodayDoneRef.current = isTodayDone
@@ -795,12 +856,20 @@ export default function App() {
   /** IndexedDB에서 저장 데이터 불러오기 (기존 localStorage 데이터 자동 이전) */
   useEffect(() => {
     let cancelled = false
-    Promise.all([loadAllStepImages(), loadCompletedDates(), loadTimerState()])
-      .then(([images, dates, timer]) => {
+    Promise.all([
+      loadAllStepImages(),
+      loadCompletedDates(),
+      loadTimerState(),
+      loadStepDurations(),
+    ])
+      .then(([images, dates, timer, durations]) => {
         if (cancelled) return
+        const nextDurations = normalizeStepDurations(durations)
+        const nextSchedule = buildStepSchedule(nextDurations)
+        setStepDurationsMin(nextDurations)
         setStepImages(images)
         setCompletedDates(dates)
-        const hydrated = hydrateTimerState(timer)
+        const hydrated = hydrateTimerState(timer, nextSchedule.totalSeconds)
         setRemaining(hydrated.remaining)
         setRunning(hydrated.running)
         setEndAt(hydrated.endAt)
@@ -829,8 +898,8 @@ export default function App() {
 
   /** 새로 끝난 단계에 알람 발송 */
   const processStepEnds = useCallback(async (nextRemaining) => {
-    const nextElapsed = TOTAL_SECONDS - nextRemaining
-    const finished = getFinishedStepIds(nextElapsed)
+    const nextElapsed = totalSecondsRef.current - nextRemaining
+    const finished = getFinishedStepIds(nextElapsed, stepEndAtsRef.current)
     const pending = finished.filter((id) => !notifiedRef.current.includes(id))
     if (pending.length === 0) return
 
@@ -876,9 +945,9 @@ export default function App() {
     if (!running || !endAt) return undefined
 
     const timers = []
-    const sessionStartAt = endAt - TOTAL_SECONDS * 1000
+    const sessionStartAt = endAt - totalSeconds * 1000
 
-    STEP_END_AT.forEach((endSec, stepId) => {
+    stepEndAts.forEach((endSec, stepId) => {
       if (notifiedRef.current.includes(stepId)) return
       const fireAt = sessionStartAt + endSec * 1000
       const delay = fireAt - Date.now()
@@ -891,7 +960,7 @@ export default function App() {
     })
 
     return () => timers.forEach(clearTimeout)
-  }, [running, endAt, syncFromClock])
+  }, [running, endAt, syncFromClock, totalSeconds, stepEndAts])
 
   // 탭 복귀 / 화면 켜짐 시 즉시 동기화
   useEffect(() => {
@@ -1043,7 +1112,7 @@ export default function App() {
     if (!running) {
       // 타이머를 먼저 시작하고, 알림 권한은 백그라운드로 요청
       const nextEndAt = Date.now() + remaining * 1000
-      const currentStep = stepIndexFromElapsed(TOTAL_SECONDS - remaining)
+      const currentStep = stepIndexFromElapsed(totalSeconds - remaining, stepEndAts)
       const stepImage = stepImages[currentStep]
 
       setEndAt(nextEndAt)
@@ -1093,15 +1162,47 @@ export default function App() {
   const handleReset = () => {
     setRunning(false)
     setEndAt(null)
-    setRemaining(TOTAL_SECONDS)
+    setRemaining(totalSeconds)
     setNotifiedEnds([])
     notifiedRef.current = []
   }
 
+  /** 단계 시간(분) 변경 — 타이머 실행 중에는 변경 불가 */
+  const handleStepDurationChange = (stepId, nextMin) => {
+    if (running) return
+
+    const nextDurations = normalizeStepDurations(
+      stepDurationsMin.map((min, id) => (id === stepId ? nextMin : min)),
+    )
+    const nextSchedule = buildStepSchedule(nextDurations)
+    const oldElapsed = Math.max(0, totalSeconds - remaining)
+    const keptElapsed = Math.min(oldElapsed, nextSchedule.totalSeconds)
+    const nextRemaining = nextSchedule.totalSeconds - keptElapsed
+    const already = getFinishedStepIds(keptElapsed, nextSchedule.endAts)
+
+    setStepDurationsMin(nextDurations)
+    setRemaining(nextRemaining)
+    setNotifiedEnds(already)
+    notifiedRef.current = already
+    void saveStepDurations(nextDurations)
+  }
+
+  /** 기본 시간(10/10/10/30)으로 복원 */
+  const handleResetDurations = () => {
+    if (running) return
+    const nextDurations = [...DEFAULT_STEP_DURATIONS_MIN]
+    const nextSchedule = buildStepSchedule(nextDurations)
+    setStepDurationsMin(nextDurations)
+    setRemaining(nextSchedule.totalSeconds)
+    setNotifiedEnds([])
+    notifiedRef.current = []
+    void saveStepDurations(nextDurations)
+  }
+
   /** 슬라이더로 경과 시간(세션 위치) 조절 */
   const handleTimeSliderChange = (elapsedSec) => {
-    const clamped = Math.max(0, Math.min(TOTAL_SECONDS, elapsedSec))
-    const nextRemaining = TOTAL_SECONDS - clamped
+    const clamped = Math.max(0, Math.min(totalSeconds, elapsedSec))
+    const nextRemaining = totalSeconds - clamped
 
     setRemaining(nextRemaining)
 
@@ -1119,7 +1220,7 @@ export default function App() {
     }
 
     // 슬라이더 이동에 맞춰 단계 알림 상태도 동기화
-    const already = getFinishedStepIds(clamped)
+    const already = getFinishedStepIds(clamped, stepEndAts)
     setNotifiedEnds(already)
     notifiedRef.current = already
   }
@@ -1128,10 +1229,10 @@ export default function App() {
   const selectStep = (step) => {
     setRunning(false)
     setEndAt(null)
-    const rem = TOTAL_SECONDS - step.startSec
+    const rem = totalSeconds - step.startSec
     setRemaining(rem)
     // 이미 지난 단계 종료 알림은 스킵 처리
-    const already = getFinishedStepIds(step.startSec)
+    const already = getFinishedStepIds(step.startSec, stepEndAts)
     setNotifiedEnds(already)
     notifiedRef.current = already
   }
@@ -1184,8 +1285,9 @@ export default function App() {
     month: 'long',
     year: 'numeric',
   })
-  const progressPct = ((TOTAL_SECONDS - remaining) / TOTAL_SECONDS) * 100
-  const elapsedSec = TOTAL_SECONDS - remaining
+  const progressPct = totalSeconds > 0 ? ((totalSeconds - remaining) / totalSeconds) * 100 : 0
+  const elapsedSec = totalSeconds - remaining
+  const totalMinutes = Math.round(totalSeconds / 60)
 
   const goPrevMonth = () => {
     if (viewMonth === 0) {
@@ -1337,7 +1439,7 @@ export default function App() {
                 <input
                   type="range"
                   min={0}
-                  max={TOTAL_SECONDS}
+                  max={totalSeconds}
                   step={1}
                   value={elapsedSec}
                   onChange={(e) => handleTimeSliderChange(Number(e.target.value))}
@@ -1350,7 +1452,7 @@ export default function App() {
                   <span className="text-stone-400">
                     {formatTime(remaining)} left · {steps[activeStep].range}
                   </span>
-                  <span>60:00</span>
+                  <span>{formatTime(totalSeconds)}</span>
                 </div>
               </div>
 
@@ -1389,9 +1491,21 @@ export default function App() {
             </section>
 
             <section>
-              <div className="mb-3 flex items-center gap-2">
-                <Music2 size={18} className="text-amber-400" />
-                <h2 className="text-base font-semibold text-stone-200">Practice Blocks</h2>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Music2 size={18} className="text-amber-400" />
+                  <h2 className="text-base font-semibold text-stone-200">Practice Blocks</h2>
+                  <span className="text-xs text-stone-500">{totalMinutes} min total</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetDurations}
+                  disabled={running}
+                  className="text-[11px] text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Reset to 10 / 10 / 10 / 30 min"
+                >
+                  Reset times
+                </button>
               </div>
 
               <ul className="grid gap-3 sm:grid-cols-2">
@@ -1454,51 +1568,92 @@ export default function App() {
                           )}
                         </button>
 
-                        {/* 스트록·스케일 연습: 참고 이미지 업로드 */}
-                        {hasImageUpload && (
-                          <div className="flex shrink-0 flex-col items-end gap-1">
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          {/* 단계 시간(분) 조절 */}
+                          <div className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800/80 px-1 py-0.5">
                             <button
                               type="button"
-                              onClick={() => stepFileRefs.current[step.id]?.click()}
-                              className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-amber-500/50 hover:bg-stone-700 hover:text-amber-300"
-                              title={`Upload ${step.title} reference chart`}
+                              disabled={running || step.durationMin <= MIN_STEP_MINUTES}
+                              onClick={() =>
+                                handleStepDurationChange(step.id, step.durationMin - 1)
+                              }
+                              className="flex h-6 w-6 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
+                              aria-label={`Decrease ${step.title} duration`}
                             >
-                              <ImagePlus size={14} />
-                              {stepImage ? 'Change Chart' : 'Upload Chart'}
+                              −
                             </button>
-                            {stepImage && (
+                            <label className="flex items-center gap-0.5">
+                              <input
+                                type="number"
+                                min={MIN_STEP_MINUTES}
+                                max={MAX_STEP_MINUTES}
+                                value={step.durationMin}
+                                disabled={running}
+                                onChange={(e) =>
+                                  handleStepDurationChange(step.id, e.target.value)
+                                }
+                                className="w-10 bg-transparent text-center text-xs font-semibold tabular-nums text-stone-100 outline-none disabled:opacity-50"
+                                aria-label={`${step.title} minutes`}
+                              />
+                              <span className="pr-1 text-[10px] text-stone-500">min</span>
+                            </label>
+                            <button
+                              type="button"
+                              disabled={running || step.durationMin >= MAX_STEP_MINUTES}
+                              onClick={() =>
+                                handleStepDurationChange(step.id, step.durationMin + 1)
+                              }
+                              className="flex h-6 w-6 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
+                              aria-label={`Increase ${step.title} duration`}
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {hasImageUpload && (
+                            <>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  showStepImage(step.id, stepImage, step.title)
-                                }
-                                className="text-[10px] text-amber-400/80 hover:text-amber-300"
+                                onClick={() => stepFileRefs.current[step.id]?.click()}
+                                className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-amber-500/50 hover:bg-stone-700 hover:text-amber-300"
+                                title={`Upload ${step.title} reference chart`}
                               >
-                                Open Chart
+                                <ImagePlus size={14} />
+                                {stepImage ? 'Change Chart' : 'Upload Chart'}
                               </button>
-                            )}
-                          </div>
-                        )}
+                              {stepImage && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    showStepImage(step.id, stepImage, step.title)
+                                  }
+                                  className="text-[10px] text-amber-400/80 hover:text-amber-300"
+                                >
+                                  Open Chart
+                                </button>
+                              )}
+                            </>
+                          )}
 
-                        {/* 악보 멜로디 연습: 오늘 코드/스케일 유튜브 */}
-                        {step.id === 2 && melodyYoutubeAvailable && (
-                          <div className="flex shrink-0 flex-col items-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => showMelodyYoutube(false)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
-                              title="Today's melody line / scale YouTube drill"
-                            >
-                              <Video size={14} />
-                              Watch on YouTube
-                            </button>
-                            <span className="text-[10px] text-stone-500">
-                              {scaleFocusDay
-                                ? 'Scale Focus'
-                                : `${melodyChords.join(' · ')} Chords`}
-                            </span>
-                          </div>
-                        )}
+                          {step.id === 2 && melodyYoutubeAvailable && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => showMelodyYoutube(false)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
+                                title="Today's melody line / scale YouTube drill"
+                              >
+                                <Video size={14} />
+                                Watch on YouTube
+                              </button>
+                              <span className="text-[10px] text-stone-500">
+                                {scaleFocusDay
+                                  ? 'Scale Focus'
+                                  : `${melodyChords.join(' · ')} Chords`}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </li>
                   )
@@ -1550,7 +1705,9 @@ export default function App() {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
               🎸
             </div>
-            <p className="text-xl font-bold text-emerald-300">60-min practice complete!</p>
+            <p className="text-xl font-bold text-emerald-300">
+              {totalMinutes}-min practice complete!
+            </p>
             <p className="mt-2 text-sm text-stone-400">
               Log today&apos;s session on the practice calendar?
             </p>

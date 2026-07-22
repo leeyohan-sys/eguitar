@@ -7,6 +7,7 @@ const STORE_APP_STATE = 'app-state'
 const APP_KEYS = {
   completedDates: 'completed-dates',
   timerState: 'timer-state',
+  stepDurations: 'step-durations',
 }
 
 /** localStorage → IndexedDB 이전용 (기존 사용자 데이터 보존) */
@@ -116,6 +117,21 @@ export async function loadTimerState() {
 export async function saveTimerState(state) {
   try {
     await setAppValue(APP_KEYS.timerState, state)
+  } catch {
+    // 저장 실패 시 무시
+  }
+}
+
+/** 단계별 연습 시간(분) 불러오기 */
+export async function loadStepDurations() {
+  const value = await getAppValue(APP_KEYS.stepDurations)
+  return Array.isArray(value) ? value : null
+}
+
+/** 단계별 연습 시간(분) 저장 */
+export async function saveStepDurations(durationsMin) {
+  try {
+    await setAppValue(APP_KEYS.stepDurations, durationsMin)
   } catch {
     // 저장 실패 시 무시
   }
