@@ -12,6 +12,7 @@ import {
   Video,
 } from 'lucide-react'
 import FretboardQuiz, { FretboardIcon } from './FretboardQuiz.jsx'
+import GuitarTuner, { TunerIcon } from './GuitarTuner.jsx'
 import {
   loadAllStepImages,
   loadCompletedDates,
@@ -835,6 +836,7 @@ export default function App() {
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [showFretboardQuiz, setShowFretboardQuiz] = useState(false)
+  const [showTuner, setShowTuner] = useState(false)
 
   const stepsRef = useRef(steps)
   stepsRef.current = steps
@@ -1434,6 +1436,16 @@ export default function App() {
               <FretboardIcon size={20} />
               Fretboard Drill
             </button>
+
+            {/* 6현 동시 튜너 */}
+            <button
+              type="button"
+              onClick={() => setShowTuner(true)}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-300 transition hover:bg-sky-500/20"
+            >
+              <TunerIcon size={20} />
+              Tuner
+            </button>
           </aside>
 
           {/* 타이머 + 루틴 — 모바일에서 최상단 */}
@@ -1701,6 +1713,7 @@ export default function App() {
         open={showFretboardQuiz}
         onClose={() => setShowFretboardQuiz(false)}
       />
+      <GuitarTuner open={showTuner} onClose={() => setShowTuner(false)} />
 
       {/* 팝업 차단 안내 */}
       {popupNotice && (
