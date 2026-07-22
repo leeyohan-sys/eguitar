@@ -3,15 +3,21 @@ import {
   Bell,
   CalendarDays,
   Check,
+  Cloud,
   Guitar,
   ImagePlus,
+  LogIn,
+  LogOut,
   Pause,
   Play,
   RotateCcw,
   Music2,
   Video,
 } from 'lucide-react'
+import { signInWithGoogle, signOutUser, subscribeAuth } from './auth.js'
+import { isFirebaseConfigured } from './firebase.js'
 import {
+  clearAuthSync,
   loadAllStepImages,
   loadCompletedDates,
   loadStepDurations,
@@ -20,6 +26,7 @@ import {
   saveStepDurations,
   saveStepImage,
   saveTimerState,
+  syncAfterLogin,
 } from './practiceStore.js'
 
 /** 기본 단계 시간(분): Stroke / Scale / Melody / Free */
@@ -833,6 +840,10 @@ export default function App() {
   const [stepImages, setStepImages] = useState({ 0: '', 1: '' })
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
+  const [authUser, setAuthUser] = useState(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured())
+  const [syncNotice, setSyncNotice] = useState(null)
 
   const stepsRef = useRef(steps)
   stepsRef.current = steps
@@ -846,12 +857,28 @@ export default function App() {
   const stepImageWindowRefs = useRef({})
   const melodyYoutubeWindowRef = useRef(null)
   const prevActiveStepRef = useRef(0)
+  const lastSyncedUidRef = useRef(null)
 
   const elapsed = totalSeconds - remaining
   const activeStep = stepIndexFromElapsed(elapsed, stepEndAts)
   const isTodayDone = completedDates.includes(todayKey)
   const isTodayDoneRef = useRef(isTodayDone)
   isTodayDoneRef.current = isTodayDone
+
+  /** 불러온/동기화된 데이터를 화면에 반영 */
+  const applyPracticeData = useCallback((payload) => {
+    const nextDurations = normalizeStepDurations(payload.stepDurations)
+    const nextSchedule = buildStepSchedule(nextDurations)
+    setStepDurationsMin(nextDurations)
+    if (payload.stepImages) setStepImages(payload.stepImages)
+    if (Array.isArray(payload.completedDates)) setCompletedDates(payload.completedDates)
+    const hydrated = hydrateTimerState(payload.timerState, nextSchedule.totalSeconds)
+    setRemaining(hydrated.remaining)
+    setRunning(hydrated.running)
+    setEndAt(hydrated.endAt)
+    setNotifiedEnds(hydrated.notifiedEnds)
+    notifiedRef.current = hydrated.notifiedEnds
+  }, [])
 
   /** IndexedDB에서 저장 데이터 불러오기 (기존 localStorage 데이터 자동 이전) */
   useEffect(() => {
@@ -864,17 +891,12 @@ export default function App() {
     ])
       .then(([images, dates, timer, durations]) => {
         if (cancelled) return
-        const nextDurations = normalizeStepDurations(durations)
-        const nextSchedule = buildStepSchedule(nextDurations)
-        setStepDurationsMin(nextDurations)
-        setStepImages(images)
-        setCompletedDates(dates)
-        const hydrated = hydrateTimerState(timer, nextSchedule.totalSeconds)
-        setRemaining(hydrated.remaining)
-        setRunning(hydrated.running)
-        setEndAt(hydrated.endAt)
-        setNotifiedEnds(hydrated.notifiedEnds)
-        notifiedRef.current = hydrated.notifiedEnds
+        applyPracticeData({
+          stepImages: images,
+          completedDates: dates,
+          timerState: timer,
+          stepDurations: durations,
+        })
         setStorageReady(true)
       })
       .catch(() => {
@@ -883,7 +905,73 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyPracticeData])
+
+  /** Firebase 로그인 상태 구독 + 클라우드 동기화 */
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return undefined
+    const unsubscribe = subscribeAuth(async (user) => {
+      setAuthUser(user)
+      setAuthReady(true)
+      if (!user) {
+        clearAuthSync()
+        lastSyncedUidRef.current = null
+        return
+      }
+      if (lastSyncedUidRef.current === user.uid) return
+      lastSyncedUidRef.current = user.uid
+      try {
+        const synced = await syncAfterLogin(user.uid)
+        applyPracticeData(synced)
+        setSyncNotice({
+          title: 'Cloud sync ready',
+          body: 'Attendance, timer, and charts sync across devices.',
+        })
+      } catch {
+        setSyncNotice({
+          title: 'Cloud sync failed',
+          body: 'Signed in, but cloud data could not be loaded. Local data is kept.',
+        })
+      }
+    })
+    return unsubscribe
+  }, [applyPracticeData])
+
+  useEffect(() => {
+    if (!syncNotice) return undefined
+    const t = setTimeout(() => setSyncNotice(null), 4000)
+    return () => clearTimeout(t)
+  }, [syncNotice])
+
+  const handleSignIn = async () => {
+    if (!isFirebaseConfigured()) {
+      window.alert(
+        'Firebase is not configured yet.\nAdd VITE_FIREBASE_* keys to .env (see .env.example).',
+      )
+      return
+    }
+    setAuthBusy(true)
+    try {
+      await signInWithGoogle()
+    } catch (err) {
+      window.alert(err?.message || 'Google sign-in failed.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    setAuthBusy(true)
+    try {
+      await signOutUser()
+      clearAuthSync()
+      setAuthUser(null)
+    } catch (err) {
+      window.alert(err?.message || 'Sign-out failed.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
 
   /** 상태 영속화 (초기 로드 전에는 기본값으로 덮어쓰지 않음) */
   useEffect(() => {
@@ -1326,11 +1414,41 @@ export default function App() {
               </p>
             </div>
           </div>
-          <p className="hidden shrink-0 pt-1 text-sm text-stone-500 sm:block">
-            {today.getFullYear()}.
-            {String(today.getMonth() + 1).padStart(2, '0')}.
-            {String(today.getDate()).padStart(2, '0')}
-          </p>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <p className="hidden text-sm text-stone-500 sm:block">
+              {today.getFullYear()}.
+              {String(today.getMonth() + 1).padStart(2, '0')}.
+              {String(today.getDate()).padStart(2, '0')}
+            </p>
+            {authUser ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={authBusy}
+                className="inline-flex max-w-[200px] items-center gap-1.5 rounded-xl border border-stone-600 bg-stone-800 px-2.5 py-2 text-[11px] font-medium text-stone-200 hover:bg-stone-700 disabled:opacity-50 sm:text-xs"
+                title={authUser.email || 'Signed in'}
+              >
+                <Cloud size={14} className="shrink-0 text-emerald-400" />
+                <span className="truncate">{authUser.displayName || 'Account'}</span>
+                <LogOut size={14} className="shrink-0 opacity-70" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSignIn}
+                disabled={authBusy || !authReady}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-[11px] font-medium text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 sm:text-xs"
+                title={
+                  isFirebaseConfigured()
+                    ? 'Sync practice data with Google'
+                    : 'Configure Firebase env keys first'
+                }
+              >
+                <LogIn size={14} />
+                Sign in
+              </button>
+            )}
+          </div>
         </header>
 
         {/* 모바일: 타이머 먼저 / PC: 달력 | 타이머 */}
@@ -1684,6 +1802,19 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      {/* 클라우드 동기화 안내 */}
+      {syncNotice && (
+        <div className="animate-celebrate fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-50 mx-auto flex w-[calc(100%-2rem)] max-w-md items-start gap-3 rounded-2xl border border-emerald-500/40 bg-stone-900 px-4 py-3 shadow-xl shadow-black/40">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+            <Cloud size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-emerald-300">{syncNotice.title}</p>
+            <p className="mt-0.5 text-xs text-stone-400">{syncNotice.body}</p>
+          </div>
+        </div>
+      )}
 
       {/* 팝업 차단 안내 */}
       {popupNotice && (
