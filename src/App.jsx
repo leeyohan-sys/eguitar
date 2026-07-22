@@ -1308,57 +1308,60 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-dvh w-full px-6 py-8 lg:px-10 lg:py-10">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <div className="app-shell min-h-dvh w-full">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 sm:gap-6">
         {/* 헤더 */}
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-400">
-              <Guitar size={26} strokeWidth={2} />
+        <header className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 sm:h-12 sm:w-12 sm:rounded-2xl">
+              <Guitar size={22} strokeWidth={2} className="sm:hidden" />
+              <Guitar size={26} strokeWidth={2} className="hidden sm:block" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-stone-50">
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-bold tracking-tight text-stone-50 sm:text-2xl">
                 E-Guitar 60-Min Routine
               </h1>
-              <p className="text-sm text-stone-400">One hour a day, steady practice</p>
+              <p className="text-xs text-stone-400 sm:text-sm">
+                One hour a day, steady practice
+              </p>
             </div>
           </div>
-          <p className="hidden text-sm text-stone-500 sm:block">
+          <p className="hidden shrink-0 pt-1 text-sm text-stone-500 sm:block">
             {today.getFullYear()}.
             {String(today.getMonth() + 1).padStart(2, '0')}.
             {String(today.getDate()).padStart(2, '0')}
           </p>
         </header>
 
-        {/* PC 2열: 좌측 달력 / 우측 타이머+루틴 */}
-        <div className="grid gap-6 lg:grid-cols-[340px_1fr] lg:items-start">
-          {/* 좌측: 달력 + 완료 */}
-          <aside className="flex flex-col gap-4">
-            <section className="rounded-2xl border border-stone-700/80 bg-stone-900/80 p-5 shadow-lg shadow-black/20">
-              <div className="mb-4 flex items-center justify-between">
+        {/* 모바일: 타이머 먼저 / PC: 달력 | 타이머 */}
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-[340px_1fr] lg:items-start">
+          {/* 달력 — 모바일에서는 아래로 */}
+          <aside className="order-3 flex flex-col gap-3 sm:gap-4 lg:order-1">
+            <section className="rounded-2xl border border-stone-700/80 bg-stone-900/80 p-4 shadow-lg shadow-black/20 sm:p-5">
+              <div className="mb-3 flex items-center justify-between sm:mb-4">
                 <button
                   type="button"
                   onClick={goPrevMonth}
-                  className="rounded-lg px-3 py-2 text-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-xl text-stone-400 hover:bg-stone-800 hover:text-stone-200"
                   aria-label="Previous month"
                 >
                   ‹
                 </button>
-                <div className="flex items-center gap-2 text-base font-semibold text-stone-100">
+                <div className="flex items-center gap-2 text-sm font-semibold text-stone-100 sm:text-base">
                   <CalendarDays size={18} className="text-amber-400" />
                   {monthLabel}
                 </div>
                 <button
                   type="button"
                   onClick={goNextMonth}
-                  className="rounded-lg px-3 py-2 text-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-xl text-stone-400 hover:bg-stone-800 hover:text-stone-200"
                   aria-label="Next month"
                 >
                   ›
                 </button>
               </div>
 
-              <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-medium text-stone-500">
+              <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-[11px] font-medium text-stone-500 sm:gap-1 sm:text-xs">
                 {WEEKDAYS.map((w) => (
                   <div key={w} className="py-1.5">
                     {w}
@@ -1366,7 +1369,7 @@ export default function App() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-1">
+              <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
                 {calendarCells.map((cell) => {
                   if (cell.type === 'empty') {
                     return <div key={cell.key} className="aspect-square" />
@@ -1375,7 +1378,7 @@ export default function App() {
                     <div
                       key={cell.key}
                       className={[
-                        'relative flex aspect-square flex-col items-center justify-center rounded-lg text-sm',
+                        'relative flex aspect-square flex-col items-center justify-center rounded-lg text-xs sm:text-sm',
                         cell.isToday
                           ? 'bg-amber-500/20 font-bold text-amber-300 ring-1 ring-amber-500/60'
                           : 'text-stone-300 hover:bg-stone-800/60',
@@ -1384,7 +1387,7 @@ export default function App() {
                       <span>{cell.day}</span>
                       {cell.isDone && (
                         <span
-                          className="absolute bottom-0.5 text-[10px] leading-none"
+                          className="absolute bottom-0.5 text-[9px] leading-none sm:text-[10px]"
                           title="Practiced"
                         >
                           ✅
@@ -1400,7 +1403,7 @@ export default function App() {
               type="button"
               onClick={isTodayDone ? unmarkTodayComplete : markTodayComplete}
               className={[
-                'flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-bold shadow-lg transition-all hover:brightness-110',
+                'flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl px-3 py-3.5 text-sm font-bold shadow-lg transition-all hover:brightness-110 sm:py-4 sm:text-base',
                 isTodayDone
                   ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
                   : 'bg-emerald-500 text-stone-950 shadow-emerald-900/30',
@@ -1409,7 +1412,8 @@ export default function App() {
               {isTodayDone ? (
                 <>
                   <Check size={22} strokeWidth={2.5} />
-                  Practiced today · Unmark
+                  <span className="sm:hidden">Practiced · Unmark</span>
+                  <span className="hidden sm:inline">Practiced today · Unmark</span>
                 </>
               ) : (
                 <>
@@ -1420,22 +1424,22 @@ export default function App() {
             </button>
           </aside>
 
-          {/* 우측: 타이머 + 루틴 */}
-          <main className="flex flex-col gap-5">
-            <section className="rounded-2xl border border-stone-700/80 bg-gradient-to-b from-stone-900 to-stone-950 px-8 py-10 text-center shadow-lg shadow-black/25">
-              <p className="mb-2 text-xs font-medium uppercase tracking-[0.2em] text-stone-500">
+          {/* 타이머 + 루틴 — 모바일에서 최상단 */}
+          <main className="order-1 flex flex-col gap-4 sm:gap-5 lg:order-2">
+            <section className="rounded-2xl border border-stone-700/80 bg-gradient-to-b from-stone-900 to-stone-950 px-4 py-6 text-center shadow-lg shadow-black/25 sm:px-8 sm:py-10">
+              <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.2em] text-stone-500 sm:text-xs">
                 Total Session
               </p>
               <div
                 className={[
-                  'font-mono text-7xl font-bold tabular-nums tracking-tight text-stone-50 lg:text-8xl',
+                  'timer-display font-mono font-bold tabular-nums text-stone-50',
                   running ? 'timer-running' : '',
                 ].join(' ')}
               >
                 {formatTime(remaining)}
               </div>
 
-              <div className="mx-auto mt-6 w-full max-w-md">
+              <div className="mx-auto mt-5 w-full max-w-md px-1 sm:mt-6">
                 <input
                   type="range"
                   min={0}
@@ -1447,25 +1451,25 @@ export default function App() {
                   style={{ '--progress': `${progressPct}%` }}
                   aria-label="Seek practice time"
                 />
-                <div className="mt-2 flex justify-between text-[11px] tabular-nums text-stone-500">
+                <div className="mt-2 flex justify-between gap-2 text-[10px] tabular-nums text-stone-500 sm:text-[11px]">
                   <span>00:00</span>
-                  <span className="text-stone-400">
+                  <span className="min-w-0 truncate text-center text-stone-400">
                     {formatTime(remaining)} left · {steps[activeStep].range}
                   </span>
                   <span>{formatTime(totalSeconds)}</span>
                 </div>
               </div>
 
-              <p className="mt-3 text-sm text-stone-400">
+              <p className="mt-3 px-1 text-sm text-stone-400">
                 {steps[activeStep].label} · {steps[activeStep].title}
               </p>
 
-              <div className="mt-8 flex items-center justify-center gap-4">
+              <div className="mt-6 flex items-center justify-center gap-3 sm:mt-8 sm:gap-4">
                 <button
                   type="button"
                   onClick={handleStartPause}
                   disabled={remaining <= 0}
-                  className="flex h-14 min-w-[160px] items-center justify-center gap-2 rounded-2xl bg-amber-500 px-8 text-base font-bold text-stone-950 shadow-md shadow-amber-900/40 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-14 min-w-[148px] flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-500 px-6 text-base font-bold text-stone-950 shadow-md shadow-amber-900/40 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40 sm:min-w-[160px] sm:flex-none sm:px-8"
                 >
                   {running ? (
                     <>
@@ -1482,7 +1486,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="flex h-14 w-14 items-center justify-center rounded-2xl border border-stone-600 bg-stone-800 text-stone-200 hover:bg-stone-700"
+                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-stone-600 bg-stone-800 text-stone-200 hover:bg-stone-700"
                   aria-label="Reset"
                 >
                   <RotateCcw size={22} />
@@ -1491,24 +1495,28 @@ export default function App() {
             </section>
 
             <section>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Music2 size={18} className="text-amber-400" />
-                  <h2 className="text-base font-semibold text-stone-200">Practice Blocks</h2>
-                  <span className="text-xs text-stone-500">{totalMinutes} min total</span>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Music2 size={18} className="shrink-0 text-amber-400" />
+                  <h2 className="text-sm font-semibold text-stone-200 sm:text-base">
+                    Practice Blocks
+                  </h2>
+                  <span className="shrink-0 text-xs text-stone-500">
+                    {totalMinutes} min
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={handleResetDurations}
                   disabled={running}
-                  className="text-[11px] text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] text-stone-500 hover:bg-stone-800 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
                   title="Reset to 10 / 10 / 10 / 30 min"
                 >
                   Reset times
                 </button>
               </div>
 
-              <ul className="grid gap-3 sm:grid-cols-2">
+              <ul className="grid gap-3">
                 {steps.map((step) => {
                   const isActive = activeStep === step.id
                   const isFinished = notifiedEnds.includes(step.id)
@@ -1518,7 +1526,7 @@ export default function App() {
                     <li key={step.id}>
                       <div
                         className={[
-                          'flex h-full w-full items-start gap-3 rounded-xl border px-4 py-4 transition-colors',
+                          'flex h-full w-full flex-col gap-3 rounded-xl border px-3.5 py-3.5 transition-colors sm:flex-row sm:items-start sm:gap-3 sm:px-4 sm:py-4',
                           isActive
                             ? 'border-amber-500/50 bg-amber-500/10'
                             : 'border-stone-700/70 bg-stone-900/60 hover:border-stone-500',
@@ -1531,7 +1539,7 @@ export default function App() {
                         >
                           <span
                             className={[
-                              'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold',
+                              'mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold sm:h-9 sm:w-9',
                               isActive
                                 ? 'bg-amber-500 text-stone-950'
                                 : isFinished
@@ -1546,7 +1554,7 @@ export default function App() {
                             )}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="flex items-center justify-between gap-2">
+                            <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
                               <span
                                 className={[
                                   'text-sm font-semibold',
@@ -1564,25 +1572,25 @@ export default function App() {
                             </span>
                           </span>
                           {isActive && (
-                            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400" />
+                            <span className="mt-1.5 hidden h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400 sm:block" />
                           )}
                         </button>
 
-                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-col sm:items-end sm:gap-1.5">
                           {/* 단계 시간(분) 조절 */}
-                          <div className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800/80 px-1 py-0.5">
+                          <div className="inline-flex items-center gap-0.5 rounded-xl border border-stone-600 bg-stone-800/80 p-0.5">
                             <button
                               type="button"
                               disabled={running || step.durationMin <= MIN_STEP_MINUTES}
                               onClick={() =>
                                 handleStepDurationChange(step.id, step.durationMin - 1)
                               }
-                              className="flex h-6 w-6 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg text-lg text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
                               aria-label={`Decrease ${step.title} duration`}
                             >
                               −
                             </button>
-                            <label className="flex items-center gap-0.5">
+                            <label className="flex items-center gap-0.5 px-0.5">
                               <input
                                 type="number"
                                 min={MIN_STEP_MINUTES}
@@ -1592,7 +1600,7 @@ export default function App() {
                                 onChange={(e) =>
                                   handleStepDurationChange(step.id, e.target.value)
                                 }
-                                className="w-10 bg-transparent text-center text-xs font-semibold tabular-nums text-stone-100 outline-none disabled:opacity-50"
+                                className="w-11 bg-transparent text-center text-base font-semibold tabular-nums text-stone-100 outline-none disabled:opacity-50"
                                 aria-label={`${step.title} minutes`}
                               />
                               <span className="pr-1 text-[10px] text-stone-500">min</span>
@@ -1603,7 +1611,7 @@ export default function App() {
                               onClick={() =>
                                 handleStepDurationChange(step.id, step.durationMin + 1)
                               }
-                              className="flex h-6 w-6 items-center justify-center rounded text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg text-lg text-stone-300 hover:bg-stone-700 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
                               aria-label={`Increase ${step.title} duration`}
                             >
                               +
@@ -1615,7 +1623,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => stepFileRefs.current[step.id]?.click()}
-                                className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-amber-500/50 hover:bg-stone-700 hover:text-amber-300"
+                                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-amber-500/50 hover:bg-stone-700 hover:text-amber-300"
                                 title={`Upload ${step.title} reference chart`}
                               >
                                 <ImagePlus size={14} />
@@ -1627,7 +1635,7 @@ export default function App() {
                                   onClick={() =>
                                     showStepImage(step.id, stepImage, step.title)
                                   }
-                                  className="text-[10px] text-amber-400/80 hover:text-amber-300"
+                                  className="px-1 text-[10px] text-amber-400/80 hover:text-amber-300"
                                 >
                                   Open Chart
                                 </button>
@@ -1640,7 +1648,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => showMelodyYoutube(false)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
+                                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
                                 title="Today's melody line / scale YouTube drill"
                               >
                                 <Video size={14} />
@@ -1679,7 +1687,7 @@ export default function App() {
 
       {/* 팝업 차단 안내 */}
       {popupNotice && (
-        <div className="animate-celebrate fixed inset-x-0 bottom-6 z-50 mx-auto flex w-[calc(100%-2rem)] max-w-md items-start gap-3 rounded-2xl border border-red-500/40 bg-stone-900 px-4 py-3 shadow-xl shadow-black/40">
+        <div className="animate-celebrate fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-50 mx-auto flex w-[calc(100%-2rem)] max-w-md items-start gap-3 rounded-2xl border border-red-500/40 bg-stone-900 px-4 py-3 shadow-xl shadow-black/40">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500/20 text-red-400">
             !
           </div>
@@ -1700,8 +1708,8 @@ export default function App() {
 
       {/* 60분 완료 시 출석 제안 */}
       {showCompleteSuggest && !isTodayDone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6">
-          <div className="animate-celebrate w-full max-w-sm rounded-3xl border border-emerald-500/30 bg-stone-900 px-8 py-10 text-center shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 sm:px-6" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="animate-celebrate w-full max-w-sm rounded-3xl border border-emerald-500/30 bg-stone-900 px-6 py-8 text-center shadow-2xl sm:px-8 sm:py-10">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
               🎸
             </div>
@@ -1733,7 +1741,7 @@ export default function App() {
 
       {/* 단계 종료 토스트 */}
       {alarmToast && (
-        <div className="animate-celebrate fixed right-6 top-6 z-50 flex w-full max-w-sm items-start gap-3 rounded-2xl border border-amber-500/40 bg-stone-900 px-4 py-3 shadow-xl shadow-black/40">
+        <div className="animate-celebrate fixed right-3 top-[max(1rem,env(safe-area-inset-top))] z-50 flex w-[calc(100%-1.5rem)] max-w-sm items-start gap-3 rounded-2xl border border-amber-500/40 bg-stone-900 px-4 py-3 shadow-xl shadow-black/40 sm:right-6">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400">
             <Bell size={18} />
           </div>
