@@ -19,7 +19,7 @@ const STEP_IMAGE_CONFIG = {
   0: { windowName: 'eguitar-stroke-image' },
   1: { windowName: 'eguitar-scale-image' },
 }
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /** 각 단계가 끝나는 경과 초 (0=1단계 종료 … 3=전체 종료) */
 const STEP_END_AT = [10 * 60, 20 * 60, 30 * 60, 60 * 60]
@@ -62,8 +62,8 @@ function getMelodyChordPair(dayOfMonth) {
 /** 날짜의 일의 자리에 따른 멜로디 연습 안내 */
 function getMelodyGuide(dayOfMonth) {
   const pair = getMelodyChordPair(dayOfMonth)
-  if (pair.length === 0) return '스케일 집중 연습'
-  return `${pair.join(', ')} 코드 멜로디 연습`
+  if (pair.length === 0) return 'Scale Focus Practice'
+  return `${pair.join(', ')} Melody Line`
 }
 
 /** 10·20·30일 스케일 집중 연습 유튜브 */
@@ -81,7 +81,7 @@ const MELODY_YOUTUBE = {
 }
 
 const POPUP_BLOCKED_MSG =
-  '팝업이 차단되었습니다.\n\n브라우저 주소창 오른쪽의 팝업 차단 아이콘을 눌러\n이 사이트(localhost)의 팝업을 허용한 뒤 다시 시도해 주세요.'
+  'Pop-up blocked.\n\nClick the pop-up blocker icon in the address bar,\nallow pop-ups for this site (localhost), then try again.'
 
 /** 날짜별 오늘 연습할 코드 목록 (연습 순서) */
 function getMelodyChordsForDay(dayOfMonth) {
@@ -161,16 +161,16 @@ function openMelodyYoutubeWindow(existingWindow, chords, guideText) {
   const linksHtml = chords
     .map((chord) => {
       const url = MELODY_YOUTUBE[chord]
-      return `<button type="button" class="chord-btn" data-watch="${url}">${chord} 코드</button>`
+      return `<button type="button" class="chord-btn" data-watch="${url}">${chord} Chord</button>`
     })
     .join('')
 
   const html = `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>악보 멜로디 연습</title>
+  <title>Melody Line Playing</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -229,10 +229,10 @@ function openMelodyYoutubeWindow(existingWindow, chords, guideText) {
 </head>
 <body>
   <div class="wrap">
-    <p class="title">악보 멜로디 연습</p>
+    <p class="title">Melody Line Playing</p>
     <p class="guide">${guideText}</p>
     <div class="links">${linksHtml}</div>
-    <p class="hint">코드를 누르면 유튜브 플레이리스트 화면이 열립니다.<br>Esc 키로 창 닫기</p>
+    <p class="hint">Tap a chord to open its YouTube playlist.<br>Press Esc to close</p>
   </div>
   <script>
     document.querySelectorAll(".chord-btn").forEach((btn) => {
@@ -333,10 +333,10 @@ function hydrateTimerState(saved) {
 function resizeImageFile(file, maxWidth = 1400, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('파일을 읽을 수 없습니다.'))
+    reader.onerror = () => reject(new Error('Could not read the file.'))
     reader.onload = () => {
       const img = new Image()
-      img.onerror = () => reject(new Error('이미지를 불러올 수 없습니다.'))
+      img.onerror = () => reject(new Error('Could not load the image.'))
       img.onload = () => {
         const scale = Math.min(1, maxWidth / img.width)
         const w = Math.round(img.width * scale)
@@ -452,17 +452,17 @@ function openStepImageWindow(existingWindow, dataUrl, title, windowName) {
 <body>
   <div class="toolbar">
     <span class="title-text">${title}</span>
-    <button type="button" id="zoom-out" title="축소">−</button>
+    <button type="button" id="zoom-out" title="Zoom Out">−</button>
     <span id="zoom-level">100%</span>
-    <button type="button" id="zoom-in" title="확대">+</button>
-    <button type="button" id="zoom-fit" title="화면 맞춤">⛶</button>
-    <button type="button" id="zoom-reset" title="원본 크기">1:1</button>
-    <button type="button" id="zoom-lens" title="돋보기 모드">🔍</button>
-    <span class="hint">드래그: 이동 · 휠/클릭(돋보기): 확대 · Esc: 닫기</span>
+    <button type="button" id="zoom-in" title="Zoom In">+</button>
+    <button type="button" id="zoom-fit" title="Fit to Screen">⛶</button>
+    <button type="button" id="zoom-reset" title="Actual Size">1:1</button>
+    <button type="button" id="zoom-lens" title="Magnifier">🔍</button>
+    <span class="hint">Drag to pan · Wheel / click (magnifier): zoom · Esc: close</span>
   </div>
   <div class="viewport" id="viewport">
     <div class="stage" id="stage">
-      <img id="viewer-img" src="${dataUrl}" alt="${title} 참고 이미지" />
+      <img id="viewer-img" src="${dataUrl}" alt="${title} reference chart" />
     </div>
   </div>
   <script>
@@ -671,10 +671,10 @@ async function fireStepAlarm(step, isSessionEnd) {
     navigator.vibrate(isSessionEnd ? [300, 120, 300, 120, 400] : [220, 100, 220])
   }
 
-  const title = isSessionEnd ? '60분 연습 완료!' : `${step.label} 종료`
+  const title = isSessionEnd ? '60-min practice complete!' : `${step.label} complete`
   const body = isSessionEnd
-    ? '전체 루틴이 끝났습니다. 수고하셨어요!'
-    : `${step.title}이(가) 끝났습니다. 다음 단계로 넘어가세요.`
+    ? 'Full session finished. Nice work!'
+    : `${step.title} is done. Move on to the next block.`
 
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     try {
@@ -725,37 +725,37 @@ export default function App() {
     () => [
       {
         id: 0,
-        label: '1단계',
-        range: '00~10분',
-        title: '스트록 연습',
-        detail: '리듬 & 피킹 정확도',
+        label: 'Step 1',
+        range: '00–10 min',
+        title: 'Stroke Practice',
+        detail: 'Rhythm & picking accuracy',
         durationMin: 10,
         startSec: 0,
       },
       {
         id: 1,
-        label: '2단계',
-        range: '10~20분',
-        title: '스케일 연습',
-        detail: '포지션 이동 & 핑거링',
+        label: 'Step 2',
+        range: '10–20 min',
+        title: 'Scale Practice',
+        detail: 'Position shifts & fretting',
         durationMin: 10,
         startSec: 10 * 60,
       },
       {
         id: 2,
-        label: '3단계',
-        range: '20~30분',
-        title: '악보 멜로디 연습',
+        label: 'Step 3',
+        range: '20–30 min',
+        title: 'Melody Line Playing',
         detail: melodyGuide,
         durationMin: 10,
         startSec: 20 * 60,
       },
       {
         id: 3,
-        label: '4단계',
-        range: '30~60분',
-        title: '곡 연습',
-        detail: '오늘의 곡 집중 연주',
+        label: 'Step 4',
+        range: '30–60 min',
+        title: 'Free Practice',
+        detail: 'Open session — play what you want',
         durationMin: 30,
         startSec: 30 * 60,
       },
@@ -932,8 +932,8 @@ export default function App() {
 
   const notifyPopupBlocked = useCallback(() => {
     setPopupNotice({
-      title: '팝업이 차단되었습니다',
-      body: '주소창 오른쪽 팝업 차단 아이콘 → 이 사이트 허용 후 다시 시도해 주세요.',
+      title: 'Pop-up blocked',
+      body: 'Address bar → pop-up blocker icon → Allow for this site, then try again.',
     })
   }, [])
 
@@ -949,6 +949,19 @@ export default function App() {
     stepImageWindowRefs.current[stepId] = win
     if (!win) notifyPopupBlocked()
   }, [notifyPopupBlocked])
+
+  /** 단계별 참고 이미지 새 창 닫기 */
+  const closeStepImageWindow = useCallback((stepId) => {
+    const win = stepImageWindowRefs.current[stepId]
+    if (win && !win.closed) {
+      try {
+        win.close()
+      } catch {
+        // 이미 닫힌 창은 무시
+      }
+    }
+    stepImageWindowRefs.current[stepId] = null
+  }, [])
 
   /** 악보 멜로디 연습 유튜브 (autoOpenFirst: 3단계 시작 시 첫 코드/스케일 자동 열기) */
   const showMelodyYoutube = useCallback((autoOpenFirst = false) => {
@@ -989,13 +1002,40 @@ export default function App() {
     if (!win) notifyPopupBlocked()
   }, [today, scaleFocusDay, melodyChords, melodyGuide, notifyPopupBlocked])
 
-  // 타이머 진행 중 3단계(멜로디)에 진입하면 첫 코드/스케일 유튜브 자동 열기
+  // 타이머 진행 중 단계 진입 시: 이전 이미지 창 닫고 현재 단계 자료 자동 열기
   useEffect(() => {
-    if (running && activeStep === 2 && prevActiveStepRef.current !== 2) {
+    if (!running) {
+      prevActiveStepRef.current = activeStep
+      return
+    }
+
+    const prev = prevActiveStepRef.current
+    if (prev === activeStep) return
+
+    // 2단계 진입: 1단계 이미지 닫고 → 2단계 이미지 열기
+    if (activeStep === 1 && prev !== 1) {
+      closeStepImageWindow(0)
+      const img = stepImages[1]
+      if (img) showStepImage(1, img, steps[1].title)
+    }
+
+    // 3단계 진입: 2단계 이미지 닫고 → 유튜브 보기 열기
+    if (activeStep === 2 && prev !== 2) {
+      closeStepImageWindow(0)
+      closeStepImageWindow(1)
       showMelodyYoutube(true)
     }
+
     prevActiveStepRef.current = activeStep
-  }, [activeStep, running, showMelodyYoutube])
+  }, [
+    activeStep,
+    running,
+    stepImages,
+    steps,
+    showStepImage,
+    showMelodyYoutube,
+    closeStepImageWindow,
+  ])
 
   const handleStartPause = () => {
     if (remaining <= 0) return
@@ -1008,10 +1048,16 @@ export default function App() {
 
       setEndAt(nextEndAt)
       setRunning(true)
-      if (stepImage && STEP_IMAGE_CONFIG[currentStep]) {
-        showStepImage(currentStep, stepImage, steps[currentStep].title)
-      }
-      if (currentStep === 2) {
+
+      // 현재 단계에 맞는 참고 창만 열기 (이전 단계 창은 닫음)
+      if (currentStep === 0) {
+        if (stepImage) showStepImage(0, stepImage, steps[0].title)
+      } else if (currentStep === 1) {
+        closeStepImageWindow(0)
+        if (stepImage) showStepImage(1, stepImage, steps[1].title)
+      } else if (currentStep === 2) {
+        closeStepImageWindow(0)
+        closeStepImageWindow(1)
         showMelodyYoutube(true)
       }
 
@@ -1040,7 +1086,7 @@ export default function App() {
         showStepImage(stepId, dataUrl, steps[stepId].title)
       }
     } catch (err) {
-      window.alert(err.message || '이미지를 저장하지 못했습니다. 다시 시도해 주세요.')
+      window.alert(err.message || 'Could not save the image. Please try again.')
     }
   }
 
@@ -1134,7 +1180,10 @@ export default function App() {
     return cells
   }, [viewYear, viewMonth, todayKey, completedDates])
 
-  const monthLabel = `${viewYear}년 ${viewMonth + 1}월`
+  const monthLabel = new Date(viewYear, viewMonth).toLocaleString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  })
   const progressPct = ((TOTAL_SECONDS - remaining) / TOTAL_SECONDS) * 100
   const elapsedSec = TOTAL_SECONDS - remaining
 
@@ -1167,9 +1216,9 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-stone-50">
-                E-Guitar 60분 루틴
+                E-Guitar 60-Min Routine
               </h1>
-              <p className="text-sm text-stone-400">매일 한 시간, 꾸준한 연습</p>
+              <p className="text-sm text-stone-400">One hour a day, steady practice</p>
             </div>
           </div>
           <p className="hidden text-sm text-stone-500 sm:block">
@@ -1189,7 +1238,7 @@ export default function App() {
                   type="button"
                   onClick={goPrevMonth}
                   className="rounded-lg px-3 py-2 text-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200"
-                  aria-label="이전 달"
+                  aria-label="Previous month"
                 >
                   ‹
                 </button>
@@ -1201,7 +1250,7 @@ export default function App() {
                   type="button"
                   onClick={goNextMonth}
                   className="rounded-lg px-3 py-2 text-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200"
-                  aria-label="다음 달"
+                  aria-label="Next month"
                 >
                   ›
                 </button>
@@ -1234,7 +1283,7 @@ export default function App() {
                       {cell.isDone && (
                         <span
                           className="absolute bottom-0.5 text-[10px] leading-none"
-                          title="연습 완료"
+                          title="Practiced"
                         >
                           ✅
                         </span>
@@ -1258,12 +1307,12 @@ export default function App() {
               {isTodayDone ? (
                 <>
                   <Check size={22} strokeWidth={2.5} />
-                  오늘 연습 완료됨 · 출석 취소
+                  Practiced today · Unmark
                 </>
               ) : (
                 <>
                   <Check size={22} strokeWidth={2.5} />
-                  오늘 연습 완료
+                  Mark Practice Done
                 </>
               )}
             </button>
@@ -1294,12 +1343,12 @@ export default function App() {
                   onChange={(e) => handleTimeSliderChange(Number(e.target.value))}
                   className="timer-slider"
                   style={{ '--progress': `${progressPct}%` }}
-                  aria-label="연습 시간 조절"
+                  aria-label="Seek practice time"
                 />
                 <div className="mt-2 flex justify-between text-[11px] tabular-nums text-stone-500">
                   <span>00:00</span>
                   <span className="text-stone-400">
-                    {formatTime(remaining)} 남음 · {steps[activeStep].range}
+                    {formatTime(remaining)} left · {steps[activeStep].range}
                   </span>
                   <span>60:00</span>
                 </div>
@@ -1319,12 +1368,12 @@ export default function App() {
                   {running ? (
                     <>
                       <Pause size={22} fill="currentColor" />
-                      일시정지
+                      Pause
                     </>
                   ) : (
                     <>
                       <Play size={22} fill="currentColor" />
-                      시작
+                      Start
                     </>
                   )}
                 </button>
@@ -1332,7 +1381,7 @@ export default function App() {
                   type="button"
                   onClick={handleReset}
                   className="flex h-14 w-14 items-center justify-center rounded-2xl border border-stone-600 bg-stone-800 text-stone-200 hover:bg-stone-700"
-                  aria-label="리셋"
+                  aria-label="Reset"
                 >
                   <RotateCcw size={22} />
                 </button>
@@ -1342,7 +1391,7 @@ export default function App() {
             <section>
               <div className="mb-3 flex items-center gap-2">
                 <Music2 size={18} className="text-amber-400" />
-                <h2 className="text-base font-semibold text-stone-200">연습 루틴</h2>
+                <h2 className="text-base font-semibold text-stone-200">Practice Blocks</h2>
               </div>
 
               <ul className="grid gap-3 sm:grid-cols-2">
@@ -1412,10 +1461,10 @@ export default function App() {
                               type="button"
                               onClick={() => stepFileRefs.current[step.id]?.click()}
                               className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-amber-500/50 hover:bg-stone-700 hover:text-amber-300"
-                              title={`${step.title} 참고 이미지 업로드`}
+                              title={`Upload ${step.title} reference chart`}
                             >
                               <ImagePlus size={14} />
-                              {stepImage ? '이미지 변경' : '이미지 업로드'}
+                              {stepImage ? 'Change Chart' : 'Upload Chart'}
                             </button>
                             {stepImage && (
                               <button
@@ -1425,7 +1474,7 @@ export default function App() {
                                 }
                                 className="text-[10px] text-amber-400/80 hover:text-amber-300"
                               >
-                                새 창으로 보기
+                                Open Chart
                               </button>
                             )}
                           </div>
@@ -1438,15 +1487,15 @@ export default function App() {
                               type="button"
                               onClick={() => showMelodyYoutube(false)}
                               className="inline-flex items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
-                              title="오늘의 멜로디/스케일 유튜브 연습"
+                              title="Today's melody line / scale YouTube drill"
                             >
                               <Video size={14} />
-                              유튜브 보기
+                              Watch on YouTube
                             </button>
                             <span className="text-[10px] text-stone-500">
                               {scaleFocusDay
-                                ? '스케일 집중'
-                                : `${melodyChords.join(' · ')} 코드`}
+                                ? 'Scale Focus'
+                                : `${melodyChords.join(' · ')} Chords`}
                             </span>
                           </div>
                         )}
@@ -1487,7 +1536,7 @@ export default function App() {
             type="button"
             onClick={() => setPopupNotice(null)}
             className="text-stone-500 hover:text-stone-300"
-            aria-label="닫기"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -1501,9 +1550,9 @@ export default function App() {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
               🎸
             </div>
-            <p className="text-xl font-bold text-emerald-300">60분 연습 완료!</p>
+            <p className="text-xl font-bold text-emerald-300">60-min practice complete!</p>
             <p className="mt-2 text-sm text-stone-400">
-              오늘 연습을 출석 달력에 기록할까요?
+              Log today&apos;s session on the practice calendar?
             </p>
             <div className="mt-6 flex flex-col gap-2">
               <button
@@ -1511,14 +1560,14 @@ export default function App() {
                 onClick={markTodayComplete}
                 className="rounded-2xl bg-emerald-500 py-3 text-base font-bold text-stone-950 hover:bg-emerald-400"
               >
-                완료 처리
+                Mark Complete
               </button>
               <button
                 type="button"
                 onClick={() => setShowCompleteSuggest(false)}
                 className="rounded-2xl border border-stone-600 py-3 text-sm text-stone-300 hover:bg-stone-800"
               >
-                나중에
+                Later
               </button>
             </div>
           </div>
@@ -1539,7 +1588,7 @@ export default function App() {
             type="button"
             onClick={() => setAlarmToast(null)}
             className="text-stone-500 hover:text-stone-300"
-            aria-label="닫기"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -1559,10 +1608,10 @@ export default function App() {
               🎸
             </div>
             <p className="text-2xl font-bold text-amber-300">
-              오늘의 연습 complete!
+              Today&apos;s practice complete!
             </p>
             <p className="mt-2 text-sm text-stone-400">
-              출석이 달력에 기록되었어요.
+              Logged on your practice calendar.
             </p>
           </div>
         </div>
