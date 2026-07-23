@@ -1,31 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, X } from 'lucide-react'
 
-/** 표준 튜닝 (저음→고음) */
-const OPEN_STRINGS = [
-  { id: 6, label: '6E', note: 'E2', freq: 82.4069 },
-  { id: 5, label: '5A', note: 'A2', freq: 110.0 },
-  { id: 4, label: '4D', note: 'D3', freq: 146.832 },
-  { id: 3, label: '3G', note: 'G3', freq: 195.998 },
-  { id: 2, label: '2B', note: 'B3', freq: 246.942 },
-  { id: 1, label: '1E', note: 'E4', freq: 329.628 },
+const NOTE_NAMES = [
+  'C',
+  'C♯',
+  'D',
+  'D♯',
+  'E',
+  'F',
+  'F♯',
+  'G',
+  'G♯',
+  'A',
+  'A♯',
+  'B',
 ]
 
-const IN_TUNE_CENTS = 8
-/** 자동 매칭 허용 범위 (±반음 3개) */
-const MATCH_CENTS = 300
-const BUFFER_SIZE = 4096
-/** 기타 개방현 탐지 대역 */
-const MIN_DETECT_HZ = 70
-const MAX_DETECT_HZ = 400
+/** 참고용 개방현 (표시 힌트만) */
+const OPEN_STRINGS = [
+  { label: '6E', freq: 82.41 },
+  { label: '5A', freq: 110.0 },
+  { label: '4D', freq: 146.83 },
+  { label: '3G', freq: 196.0 },
+  { label: '2B', freq: 246.94 },
+  { label: '1E', freq: 329.63 },
+]
 
-function freqToCents(freq, target) {
-  if (!freq || !target || freq <= 0) return 0
-  return 1200 * Math.log2(freq / target)
-}
+const A4 = 440
+const IN_TUNE_CENTS = 8
+const BUFFER_SIZE = 4096
+/** 일반적인 기타 음역 (프렛 포함) */
+const MIN_DETECT_HZ = 60
+const MAX_DETECT_HZ = 1200
 
 /**
- * YIN 피치 검출 — 기타 개방현에 안정적
+ * YIN 피치 검출
  * @returns {{ freq: number, rms: number, clarity: number } | null}
  */
 function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
@@ -36,13 +45,15 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
   if (rms < 0.002) return null
 
   const minTau = Math.max(2, Math.floor(sampleRate / maxFreq))
-  const maxTau = Math.min(Math.floor(sampleRate / minFreq), Math.floor(size / 2) - 1)
+  const maxTau = Math.min(
+    Math.floor(sampleRate / minFreq),
+    Math.floor(size / 2) - 1,
+  )
   if (minTau >= maxTau) return null
 
   const yin = new Float32Array(maxTau + 1)
   const half = size >> 1
 
-  // difference function
   for (let tau = 1; tau <= maxTau; tau += 1) {
     let sum = 0
     for (let i = 0; i < half; i += 1) {
@@ -52,7 +63,6 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
     yin[tau] = sum
   }
 
-  // cumulative mean normalized difference
   yin[0] = 1
   let running = 0
   for (let tau = 1; tau <= maxTau; tau += 1) {
@@ -60,7 +70,7 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
     yin[tau] = running > 0 ? (yin[tau] * tau) / running : 1
   }
 
-  const threshold = 0.2
+  const threshold = 0.15
   let tauEstimate = -1
   for (let tau = minTau; tau < maxTau; tau += 1) {
     if (yin[tau] < threshold) {
@@ -71,7 +81,6 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
   }
   if (tauEstimate < 0) return null
 
-  // 포물선 보간으로 소수점 lag
   const x0 = Math.max(1, tauEstimate - 1)
   const x1 = tauEstimate
   const x2 = Math.min(maxTau, tauEstimate + 1)
@@ -86,64 +95,52 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
   return { freq, rms, clarity: 1 - yin[tauEstimate] }
 }
 
-/** 감지 주파수를 가장 가까운 개방현에 매핑 */
-function nearestString(freq, lockedId) {
-  if (lockedId != null) {
-    const locked = OPEN_STRINGS.find((s) => s.id === lockedId)
-    if (locked) return locked
+/** Hz → 가장 가까운 음이름 + 센트 */
+function freqToNote(freq) {
+  const midi = 69 + 12 * Math.log2(freq / A4)
+  const rounded = Math.round(midi)
+  const cents = (midi - rounded) * 100
+  const noteIndex = ((rounded % 12) + 12) % 12
+  const octave = Math.floor(rounded / 12) - 1
+  return {
+    name: NOTE_NAMES[noteIndex],
+    octave,
+    cents,
+    midi: rounded,
+    targetHz: A4 * 2 ** ((rounded - 69) / 12),
   }
-  let best = OPEN_STRINGS[0]
+}
+
+/** 개방현에 가까우면 라벨 반환 */
+function openStringHint(freq) {
+  let best = null
   let bestAbs = Infinity
   for (const s of OPEN_STRINGS) {
-    const abs = Math.abs(freqToCents(freq, s.freq))
+    const cents = 1200 * Math.log2(freq / s.freq)
+    const abs = Math.abs(cents)
     if (abs < bestAbs) {
       bestAbs = abs
       best = s
     }
   }
-  // 너무 멀면 매칭 안 함 (잡음/하모닉 오인 방지)
-  if (bestAbs > MATCH_CENTS) return null
-  return best
-}
-
-function centsLabel(cents, active) {
-  if (!active) return '—'
-  if (Math.abs(cents) <= IN_TUNE_CENTS) return 'OK'
-  return cents > 0 ? `+${cents.toFixed(0)}¢` : `${cents.toFixed(0)}¢`
-}
-
-function emptyStrings() {
-  return OPEN_STRINGS.map((s) => ({
-    ...s,
-    detectedHz: null,
-    cents: 0,
-    active: false,
-    inTune: false,
-    strength: 0,
-  }))
+  if (best && bestAbs <= 50) return best.label
+  return null
 }
 
 /**
- * 기타 튜너
- * 단일 피치(YIN) 검출 후 가장 가까운 현에 표시
+ * 일반 크로매틱 튜너 — 들리는 음에 바늘/음이름 표시
  */
 export default function GuitarTuner({ open, onClose }) {
-  const [strings, setStrings] = useState(emptyStrings)
   const [listening, setListening] = useState(false)
   const [error, setError] = useState(null)
   const [level, setLevel] = useState(0)
-  const [lockedId, setLockedId] = useState(null)
-  const [detectedHz, setDetectedHz] = useState(null)
+  const [reading, setReading] = useState(null) // { name, octave, cents, hz, hint, inTune }
 
   const audioRef = useRef(null)
   const rafRef = useRef(0)
-  const centsSmoothRef = useRef(null)
-  const lockedIdRef = useRef(null)
+  const smoothCentsRef = useRef(null)
+  const holdRef = useRef({ until: 0, value: null })
   const startGenRef = useRef(0)
-
-  useEffect(() => {
-    lockedIdRef.current = lockedId
-  }, [lockedId])
 
   const stopAudio = () => {
     startGenRef.current += 1
@@ -155,10 +152,11 @@ export default function GuitarTuner({ open, onClose }) {
       ctx.audioCtx?.close().catch(() => {})
       audioRef.current = null
     }
-    centsSmoothRef.current = null
+    smoothCentsRef.current = null
+    holdRef.current = { until: 0, value: null }
     setListening(false)
     setLevel(0)
-    setDetectedHz(null)
+    setReading(null)
   }
 
   const startAudio = async () => {
@@ -174,21 +172,17 @@ export default function GuitarTuner({ open, onClose }) {
           channelCount: 1,
           echoCancellation: false,
           noiseSuppression: false,
-          // 노트북 내장 마이크는 AGC 켜야 신호가 잡히는 경우가 많음
           autoGainControl: true,
         },
       })
 
-      // StrictMode 더블 마운트 / 빠른 닫기 시 정리
       if (gen !== startGenRef.current) {
         stream.getTracks().forEach((t) => t.stop())
         return
       }
 
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume()
-      }
+      if (audioCtx.state === 'suspended') await audioCtx.resume()
       if (gen !== startGenRef.current) {
         stream.getTracks().forEach((t) => t.stop())
         await audioCtx.close().catch(() => {})
@@ -197,15 +191,14 @@ export default function GuitarTuner({ open, onClose }) {
 
       const source = audioCtx.createMediaStreamSource(stream)
 
-      // 기타 개방현 대역만 통과 (좁은 현별 bandpass 제거 — 신호가 사라지던 원인)
       const highpass = audioCtx.createBiquadFilter()
       highpass.type = 'highpass'
-      highpass.frequency.value = 55
+      highpass.frequency.value = 50
       highpass.Q.value = 0.7
 
       const lowpass = audioCtx.createBiquadFilter()
       lowpass.type = 'lowpass'
-      lowpass.frequency.value = 450
+      lowpass.frequency.value = 1400
       lowpass.Q.value = 0.7
 
       const analyser = audioCtx.createAnalyser()
@@ -236,7 +229,6 @@ export default function GuitarTuner({ open, onClose }) {
         rms = Math.sqrt(rms / state.buf.length)
         setLevel(Math.min(1, rms * 18))
 
-        // 조용할 때 노이즈 플로어 학습
         if (rms < noiseFloor * 1.5) {
           noiseFloor = noiseFloor * 0.95 + rms * 0.05
         }
@@ -252,47 +244,35 @@ export default function GuitarTuner({ open, onClose }) {
               )
             : null
 
-        if (!pitch || pitch.clarity < 0.55) {
-          centsSmoothRef.current = null
-          setDetectedHz(null)
-          setStrings((prev) =>
-            prev.map((s) => ({
-              ...s,
-              detectedHz: null,
-              cents: 0,
-              active: false,
-              inTune: false,
-              strength: Math.min(1, rms * 18),
-            })),
-          )
-        } else {
-          setDetectedHz(pitch.freq)
-          const match = nearestString(pitch.freq, lockedIdRef.current)
-          let cents = match ? freqToCents(pitch.freq, match.freq) : 0
-          if (match) {
-            const prev = centsSmoothRef.current
-            cents =
-              prev == null || prev.stringId !== match.id
-                ? cents
-                : prev.cents * 0.65 + cents * 0.35
-            centsSmoothRef.current = { stringId: match.id, cents }
-          } else {
-            centsSmoothRef.current = null
-          }
+        const now = performance.now()
 
-          setStrings(
-            OPEN_STRINGS.map((s) => {
-              const active = match != null && match.id === s.id
-              return {
-                ...s,
-                detectedHz: active ? pitch.freq : null,
-                cents: active ? cents : 0,
-                active,
-                inTune: active && Math.abs(cents) <= IN_TUNE_CENTS,
-                strength: active ? Math.min(1, pitch.rms * 18) : 0,
-              }
-            }),
-          )
+        if (pitch && pitch.clarity >= 0.5) {
+          const note = freqToNote(pitch.freq)
+          const prev = smoothCentsRef.current
+          // 음이 바뀌면 스무딩 리셋
+          const cents =
+            prev && prev.midi === note.midi
+              ? prev.cents * 0.6 + note.cents * 0.4
+              : note.cents
+          smoothCentsRef.current = { midi: note.midi, cents }
+
+          const next = {
+            name: note.name,
+            octave: note.octave,
+            cents,
+            hz: pitch.freq,
+            hint: openStringHint(pitch.freq),
+            inTune: Math.abs(cents) <= IN_TUNE_CENTS,
+          }
+          holdRef.current = { until: now + 350, value: next }
+          setReading(next)
+        } else if (holdRef.current.value && now < holdRef.current.until) {
+          // 짧은 무음은 마지막 값 유지 (바늘 깜빡임 완화)
+          setReading(holdRef.current.value)
+        } else {
+          smoothCentsRef.current = null
+          holdRef.current = { until: 0, value: null }
+          setReading(null)
         }
 
         rafRef.current = requestAnimationFrame(tick)
@@ -313,8 +293,7 @@ export default function GuitarTuner({ open, onClose }) {
   useEffect(() => {
     if (!open) {
       stopAudio()
-      setStrings(emptyStrings())
-      setLockedId(null)
+      setReading(null)
       return undefined
     }
     void startAudio()
@@ -333,7 +312,10 @@ export default function GuitarTuner({ open, onClose }) {
 
   if (!open) return null
 
-  const active = strings.find((s) => s.active)
+  const cents = reading?.cents ?? 0
+  const clamped = Math.max(-50, Math.min(50, cents))
+  const needle = ((clamped + 50) / 100) * 100
+  const hasTone = reading != null
 
   return (
     <div
@@ -346,15 +328,14 @@ export default function GuitarTuner({ open, onClose }) {
       aria-modal="true"
       aria-label="Guitar Tuner"
     >
-      <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-stone-600 bg-stone-950 shadow-2xl">
+      <div className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-stone-600 bg-stone-950 shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-stone-800 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <p className="text-sm font-bold text-amber-300 sm:text-base">
               Guitar Tuner
             </p>
             <p className="mt-0.5 text-[11px] text-stone-500 sm:text-xs">
-              Pluck one string near the mic
-              {lockedId != null ? ' · string locked' : ' · tap a string to lock'}
+              Chromatic · play any note near the mic
             </p>
           </div>
           <button
@@ -389,11 +370,6 @@ export default function GuitarTuner({ open, onClose }) {
                 style={{ width: `${Math.round(level * 100)}%` }}
               />
             </div>
-            {detectedHz != null && (
-              <span className="shrink-0 font-mono text-[10px] text-sky-400">
-                {detectedHz.toFixed(1)} Hz
-              </span>
-            )}
           </div>
           <button
             type="button"
@@ -410,93 +386,95 @@ export default function GuitarTuner({ open, onClose }) {
 
         {listening && level < 0.02 && (
           <p className="px-4 pb-2 text-xs text-amber-400/90 sm:px-5">
-            Low input — allow mic permission, then pluck closer to the microphone.
+            Low input — allow mic, then pluck closer to the microphone.
           </p>
         )}
 
-        {active?.inTune && (
-          <p className="px-4 pb-2 text-center text-sm font-bold text-emerald-400 sm:px-5">
-            {active.label} in tune ✓
-          </p>
-        )}
-
-        <div className="min-h-0 flex-1 space-y-2.5 overflow-auto px-4 pb-5 sm:px-5">
-          {[...strings].reverse().map((s) => {
-            const clamped = Math.max(-50, Math.min(50, s.cents))
-            const needle = ((clamped + 50) / 100) * 100
-            const isLocked = lockedId === s.id
-
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() =>
-                  setLockedId((prev) => (prev === s.id ? null : s.id))
-                }
-                className={[
-                  'w-full rounded-2xl border px-3 py-2.5 text-left transition',
-                  s.inTune
-                    ? 'border-emerald-500/50 bg-emerald-500/10'
-                    : s.active
-                      ? 'border-amber-500/40 bg-stone-900'
-                      : isLocked
-                        ? 'border-sky-500/40 bg-stone-900'
-                        : 'border-stone-700/70 bg-stone-900/50',
-                ].join(' ')}
-              >
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-sm font-bold text-stone-100">
-                      {s.label}
-                    </span>
-                    <span className="text-[11px] text-stone-500">{s.note}</span>
-                    <span className="font-mono text-[10px] text-stone-600">
-                      {s.freq.toFixed(1)} Hz
-                    </span>
-                    {isLocked && (
-                      <span className="text-[10px] font-semibold text-sky-400">
-                        LOCK
-                      </span>
-                    )}
-                    {s.active && s.detectedHz != null && (
-                      <span className="font-mono text-[10px] text-sky-400/90">
-                        → {s.detectedHz.toFixed(1)} Hz
-                      </span>
-                    )}
-                  </div>
-                  <span
-                    className={[
-                      'font-mono text-xs font-semibold tabular-nums',
-                      s.inTune
-                        ? 'text-emerald-400'
-                        : s.active
-                          ? 'text-amber-300'
-                          : 'text-stone-600',
-                    ].join(' ')}
-                  >
-                    {centsLabel(s.cents, s.active)}
+        {/* 중앙 음이름 + 바늘 */}
+        <div className="flex flex-col items-center px-4 pb-6 pt-2 sm:px-5">
+          <div
+            className={[
+              'flex h-28 w-full items-center justify-center rounded-2xl border transition',
+              reading?.inTune
+                ? 'border-emerald-500/50 bg-emerald-500/10'
+                : hasTone
+                  ? 'border-amber-500/30 bg-stone-900'
+                  : 'border-stone-800 bg-stone-900/60',
+            ].join(' ')}
+          >
+            {hasTone ? (
+              <div className="text-center">
+                <p
+                  className={[
+                    'text-6xl font-bold tracking-tight sm:text-7xl',
+                    reading.inTune ? 'text-emerald-400' : 'text-stone-100',
+                  ].join(' ')}
+                >
+                  {reading.name}
+                  <span className="ml-1 align-super text-2xl font-semibold text-stone-500 sm:text-3xl">
+                    {reading.octave}
                   </span>
-                </div>
+                </p>
+                {reading.hint && (
+                  <p className="mt-1 text-xs font-semibold text-sky-400">
+                    Open {reading.hint}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-4xl font-bold text-stone-700">—</p>
+            )}
+          </div>
 
-                <div className="relative h-3 overflow-hidden rounded-full bg-stone-800">
-                  <div className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-stone-500" />
-                  {s.active && (
-                    <div
-                      className={[
-                        'absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow',
-                        s.inTune ? 'bg-emerald-400' : 'bg-amber-400',
-                      ].join(' ')}
-                      style={{ left: `${needle}%` }}
-                    />
-                  )}
-                </div>
-                <div className="mt-1 flex justify-between text-[9px] uppercase tracking-wider text-stone-600">
-                  <span>Flat</span>
-                  <span>Sharp</span>
-                </div>
-              </button>
-            )
-          })}
+          <div className="mt-5 w-full">
+            <div className="relative h-4 overflow-hidden rounded-full bg-stone-800">
+              {/* 중앙 눈금 */}
+              <div className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-stone-400" />
+              {/* 인튠 구간 표시 */}
+              {/* ±8¢ 인튠 구간 */}
+              <div
+                className="absolute inset-y-1 rounded-full bg-emerald-500/20"
+                style={{ left: '42%', width: '16%' }}
+              />
+              {hasTone && (
+                <div
+                  className={[
+                    'absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full shadow transition-[left]',
+                    reading.inTune ? 'bg-emerald-400' : 'bg-amber-400',
+                  ].join(' ')}
+                  style={{ left: `${needle}%` }}
+                />
+              )}
+            </div>
+            <div className="mt-1.5 flex justify-between text-[10px] uppercase tracking-wider text-stone-600">
+              <span>Flat (−)</span>
+              <span>Sharp (+)</span>
+            </div>
+          </div>
+
+          <div className="mt-4 flex min-h-[1.5rem] items-center gap-3 font-mono text-sm tabular-nums">
+            {hasTone ? (
+              <>
+                <span
+                  className={
+                    reading.inTune
+                      ? 'font-bold text-emerald-400'
+                      : 'text-amber-300'
+                  }
+                >
+                  {reading.inTune
+                    ? 'OK'
+                    : cents > 0
+                      ? `+${cents.toFixed(0)}¢`
+                      : `${cents.toFixed(0)}¢`}
+                </span>
+                <span className="text-stone-600">·</span>
+                <span className="text-stone-400">{reading.hz.toFixed(1)} Hz</span>
+              </>
+            ) : (
+              <span className="text-stone-600">Waiting for sound…</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
