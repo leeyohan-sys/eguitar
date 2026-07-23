@@ -28,13 +28,16 @@ const OPEN_STRINGS = [
 
 const A4 = 440
 const IN_TUNE_CENTS = 8
-const BUFFER_SIZE = 4096
-/** 일반적인 기타 음역 (프렛 포함) */
-const MIN_DETECT_HZ = 60
+/** 저음 E2(~82Hz) 주기가 버퍼에 여러 번 들어가도록 */
+const BUFFER_SIZE = 8192
+/** 기타 저음 E2(flat 포함) ~ 고음 프렛 */
+const MIN_DETECT_HZ = 55
 const MAX_DETECT_HZ = 1200
 
 /**
  * YIN 피치 검출
+ * - 버퍼 확대 + 차분 구간 확보로 E2/A2 검출 강화
+ * - 첫 임계 골 사용 (옥타브 아래 강제 선택 시 고음 오인 발생)
  * @returns {{ freq: number, rms: number, clarity: number } | null}
  */
 function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
@@ -42,21 +45,23 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
   let rms = 0
   for (let i = 0; i < size; i += 1) rms += buf[i] * buf[i]
   rms = Math.sqrt(rms / size)
-  if (rms < 0.002) return null
+  // 저음은 노트북 마이크에서 RMS가 작음
+  if (rms < 0.0008) return null
 
   const minTau = Math.max(2, Math.floor(sampleRate / maxFreq))
   const maxTau = Math.min(
     Math.floor(sampleRate / minFreq),
-    Math.floor(size / 2) - 1,
+    Math.floor(size / 2) - 2,
   )
   if (minTau >= maxTau) return null
 
   const yin = new Float32Array(maxTau + 1)
-  const half = size >> 1
+  // tau가 큰 저음에서도 샘플이 남도록
+  const n = size - maxTau
 
   for (let tau = 1; tau <= maxTau; tau += 1) {
     let sum = 0
-    for (let i = 0; i < half; i += 1) {
+    for (let i = 0; i < n; i += 1) {
       const d = buf[i] - buf[i + tau]
       sum += d * d
     }
@@ -70,7 +75,8 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
     yin[tau] = running > 0 ? (yin[tau] * tau) / running : 1
   }
 
-  const threshold = 0.15
+  // 저음일수록 CMNDF 골이 얕아 임계값을 조금 느슨하게
+  const threshold = 0.2
   let tauEstimate = -1
   for (let tau = minTau; tau < maxTau; tau += 1) {
     if (yin[tau] < threshold) {
@@ -79,8 +85,24 @@ function detectPitchYin(buf, sampleRate, minFreq, maxFreq) {
       break
     }
   }
-  if (tauEstimate < 0) return null
 
+  // 임계 미달 시: 전 구간 로컬 최소 중 최선 (약한 저음 대비)
+  if (tauEstimate < 0) {
+    let bestVal = 1
+    for (let tau = minTau + 1; tau < maxTau - 1; tau += 1) {
+      if (
+        yin[tau] <= yin[tau - 1] &&
+        yin[tau] <= yin[tau + 1] &&
+        yin[tau] < bestVal
+      ) {
+        bestVal = yin[tau]
+        tauEstimate = tau
+      }
+    }
+    if (tauEstimate < 0 || bestVal > 0.4) return null
+  }
+
+  // 포물선 보간
   const x0 = Math.max(1, tauEstimate - 1)
   const x1 = tauEstimate
   const x2 = Math.min(maxTau, tauEstimate + 1)
@@ -111,19 +133,33 @@ function freqToNote(freq) {
   }
 }
 
-/** 개방현에 가까우면 라벨 반환 */
+/**
+ * 노트북 마이크는 저음 기본음보다 2배 하모닉을 잘 잡음
+ * → 개방현(E2/A2 등)의 옥타브 위면 한 옥타브 내려 표시
+ */
+function normalizeGuitarFreq(freq) {
+  for (const s of OPEN_STRINGS) {
+    const oct = s.freq * 2
+    const cents = Math.abs(1200 * Math.log2(freq / oct))
+    if (cents <= 45) return freq / 2
+  }
+  return freq
+}
+
+/** 개방현에 가까우면 라벨 반환 (하모닉 포함) */
 function openStringHint(freq) {
   let best = null
   let bestAbs = Infinity
   for (const s of OPEN_STRINGS) {
-    const cents = 1200 * Math.log2(freq / s.freq)
-    const abs = Math.abs(cents)
-    if (abs < bestAbs) {
-      bestAbs = abs
-      best = s
+    for (const mult of [1, 2]) {
+      const cents = Math.abs(1200 * Math.log2(freq / (s.freq * mult)))
+      if (cents < bestAbs) {
+        bestAbs = cents
+        best = s
+      }
     }
   }
-  if (best && bestAbs <= 50) return best.label
+  if (best && bestAbs <= 45) return best.label
   return null
 }
 
@@ -193,13 +229,14 @@ export default function GuitarTuner({ open, onClose }) {
 
       const highpass = audioCtx.createBiquadFilter()
       highpass.type = 'highpass'
-      highpass.frequency.value = 50
-      highpass.Q.value = 0.7
+      // E2(82Hz) 감쇠를 피하려고 컷오프를 낮게
+      highpass.frequency.value = 28
+      highpass.Q.value = 0.707
 
       const lowpass = audioCtx.createBiquadFilter()
       lowpass.type = 'lowpass'
       lowpass.frequency.value = 1400
-      lowpass.Q.value = 0.7
+      lowpass.Q.value = 0.707
 
       const analyser = audioCtx.createAnalyser()
       analyser.fftSize = BUFFER_SIZE
@@ -213,7 +250,7 @@ export default function GuitarTuner({ open, onClose }) {
       audioRef.current = { stream, audioCtx, analyser, buf }
       setListening(true)
 
-      let noiseFloor = 0.001
+      let noiseFloor = 0.0005
 
       const tick = () => {
         if (gen !== startGenRef.current) return
@@ -227,12 +264,13 @@ export default function GuitarTuner({ open, onClose }) {
           rms += state.buf[i] * state.buf[i]
         }
         rms = Math.sqrt(rms / state.buf.length)
-        setLevel(Math.min(1, rms * 18))
+        setLevel(Math.min(1, rms * 22))
 
-        if (rms < noiseFloor * 1.5) {
+        if (rms < noiseFloor * 1.8) {
           noiseFloor = noiseFloor * 0.95 + rms * 0.05
         }
-        const gate = Math.max(0.003, noiseFloor * 4)
+        // 저음 개방현은 입력 레벨이 작아 게이트를 낮춤
+        const gate = Math.max(0.0012, noiseFloor * 2.5)
 
         const pitch =
           rms >= gate
@@ -246,8 +284,17 @@ export default function GuitarTuner({ open, onClose }) {
 
         const now = performance.now()
 
-        if (pitch && pitch.clarity >= 0.5) {
-          const note = freqToNote(pitch.freq)
+        // 저음일수록 clarity 문턱을 완화 (E2/A2)
+        const clarityOk =
+          pitch &&
+          (pitch.freq < 150
+            ? pitch.clarity >= 0.35
+            : pitch.clarity >= 0.45)
+
+        if (pitch && clarityOk) {
+          // 저음 개방현이 옥타브 위로 잡히면 E2/A2로 보정
+          const displayHz = normalizeGuitarFreq(pitch.freq)
+          const note = freqToNote(displayHz)
           const prev = smoothCentsRef.current
           // 음이 바뀌면 스무딩 리셋
           const cents =
@@ -260,11 +307,11 @@ export default function GuitarTuner({ open, onClose }) {
             name: note.name,
             octave: note.octave,
             cents,
-            hz: pitch.freq,
+            hz: displayHz,
             hint: openStringHint(pitch.freq),
             inTune: Math.abs(cents) <= IN_TUNE_CENTS,
           }
-          holdRef.current = { until: now + 350, value: next }
+          holdRef.current = { until: now + 450, value: next }
           setReading(next)
         } else if (holdRef.current.value && now < holdRef.current.until) {
           // 짧은 무음은 마지막 값 유지 (바늘 깜빡임 완화)
