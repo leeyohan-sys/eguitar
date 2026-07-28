@@ -16,9 +16,11 @@ import GuitarTuner, { TunerIcon } from './GuitarTuner.jsx'
 import {
   loadAllStepImages,
   loadCompletedDates,
+  loadPracticeLogs,
   loadStepDurations,
   loadTimerState,
   saveCompletedDates,
+  savePracticeLog,
   saveStepDurations,
   saveStepImage,
   saveTimerState,
@@ -81,6 +83,20 @@ function toDateKey(date) {
   return `${y}-${m}-${d}`
 }
 
+/** YYYY-MM-DD 키를 보기 좋은 날짜 문자열로 변환 */
+function formatDateLabel(dateKey) {
+  if (!dateKey) return ''
+  const [y, m, d] = dateKey.split('-').map(Number)
+  if (!y || !m || !d) return dateKey
+  const date = new Date(y, m - 1, d)
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    weekday: 'short',
+  })
+}
+
 /** 초 → mm:ss 또는 hh:mm:ss */
 function formatTime(totalSec) {
   const s = Math.max(0, Math.ceil(totalSec))
@@ -118,6 +134,9 @@ function getMelodyGuide(dayOfMonth) {
 /** 10·20·30일 스케일 집중 연습 유튜브 */
 const SCALE_FOCUS_YOUTUBE =
   'https://www.youtube.com/watch?v=EFCvyjXUFM0&list=PL-bWLXECK9oQB8l_cwZ6lQMuTHmXMppXP'
+/** 4단계 Free Practice용 유튜브 플레이리스트 홈(검색 결과) */
+const FREE_PRACTICE_YOUTUBE =
+  'https://www.youtube.com/feed/playlists'
 
 /** 코드별 유튜브 연습 링크 */
 const MELODY_YOUTUBE = {
@@ -837,6 +856,8 @@ export default function App() {
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [showFretboardQuiz, setShowFretboardQuiz] = useState(false)
   const [showTuner, setShowTuner] = useState(false)
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey)
+  const [practiceLogs, setPracticeLogs] = useState({})
 
   const stepsRef = useRef(steps)
   stepsRef.current = steps
@@ -849,6 +870,7 @@ export default function App() {
   const stepFileRefs = useRef({})
   const stepImageWindowRefs = useRef({})
   const melodyYoutubeWindowRef = useRef(null)
+  const freePracticeYoutubeWindowRef = useRef(null)
   const prevActiveStepRef = useRef(0)
 
   const elapsed = totalSeconds - remaining
@@ -865,14 +887,16 @@ export default function App() {
       loadCompletedDates(),
       loadTimerState(),
       loadStepDurations(),
+      loadPracticeLogs(),
     ])
-      .then(([images, dates, timer, durations]) => {
+      .then(([images, dates, timer, durations, logs]) => {
         if (cancelled) return
         const nextDurations = normalizeStepDurations(durations)
         const nextSchedule = buildStepSchedule(nextDurations)
         setStepDurationsMin(nextDurations)
         setStepImages(images)
         setCompletedDates(dates)
+        setPracticeLogs(logs)
         const hydrated = hydrateTimerState(timer, nextSchedule.totalSeconds)
         setRemaining(hydrated.remaining)
         setRunning(hydrated.running)
@@ -1075,6 +1099,17 @@ export default function App() {
     if (!win) notifyPopupBlocked()
   }, [today, scaleFocusDay, melodyChords, melodyGuide, notifyPopupBlocked])
 
+  /** 4단계 자유 연습용 유튜브 열기 */
+  const showFreePracticeYoutube = useCallback(() => {
+    const win = openYoutubeWatchWindow(
+      freePracticeYoutubeWindowRef.current,
+      FREE_PRACTICE_YOUTUBE,
+      'eguitar-free-practice-youtube',
+    )
+    freePracticeYoutubeWindowRef.current = win
+    if (!win) notifyPopupBlocked()
+  }, [notifyPopupBlocked])
+
   // 타이머 진행 중 단계 진입 시: 이전 이미지 창 닫고 현재 단계 자료 자동 열기
   useEffect(() => {
     if (!running) {
@@ -1099,6 +1134,13 @@ export default function App() {
       showMelodyYoutube(true)
     }
 
+    // 4단계 진입: 자유 연습용 유튜브 열기
+    if (activeStep === 3 && prev !== 3) {
+      closeStepImageWindow(0)
+      closeStepImageWindow(1)
+      showFreePracticeYoutube()
+    }
+
     prevActiveStepRef.current = activeStep
   }, [
     activeStep,
@@ -1107,6 +1149,7 @@ export default function App() {
     steps,
     showStepImage,
     showMelodyYoutube,
+    showFreePracticeYoutube,
     closeStepImageWindow,
   ])
 
@@ -1132,6 +1175,10 @@ export default function App() {
         closeStepImageWindow(0)
         closeStepImageWindow(1)
         showMelodyYoutube(true)
+      } else if (currentStep === 3) {
+        closeStepImageWindow(0)
+        closeStepImageWindow(1)
+        showFreePracticeYoutube()
       }
 
       void ensureNotificationPermission()
@@ -1243,15 +1290,25 @@ export default function App() {
 
   const markTodayComplete = useCallback(() => {
     if (isTodayDone) return
+    const sessionTotalMinutes = Math.round(totalSeconds / 60)
     setCompletedDates((prev) => {
       if (prev.includes(todayKey)) return prev
       const next = [...prev, todayKey]
       saveCompletedDates(next)
       return next
     })
+    // 날짜별 연습 기록 저장 (달력 상세 보기용)
+    const log = {
+      completedAt: Date.now(),
+      totalMinutes: sessionTotalMinutes,
+      stepDurationsMin: [...stepDurationsMin],
+      steps: steps.map((s) => ({ id: s.id, title: s.title, minutes: s.durationMin })),
+    }
+    setPracticeLogs((prev) => ({ ...prev, [todayKey]: log }))
+    void savePracticeLog(todayKey, log)
     setShowCompleteSuggest(false)
     setShowCelebrate(true)
-  }, [isTodayDone, todayKey])
+  }, [isTodayDone, todayKey, totalSeconds, stepDurationsMin, steps])
 
   const unmarkTodayComplete = useCallback(() => {
     if (!isTodayDone) return
@@ -1292,6 +1349,8 @@ export default function App() {
   const progressPct = totalSeconds > 0 ? ((totalSeconds - remaining) / totalSeconds) * 100 : 0
   const elapsedSec = totalSeconds - remaining
   const totalMinutes = Math.round(totalSeconds / 60)
+  const selectedLog = practiceLogs[selectedDateKey] || null
+  const selectedDone = completedDates.includes(selectedDateKey)
 
   const goPrevMonth = () => {
     if (viewMonth === 0) {
@@ -1379,10 +1438,15 @@ export default function App() {
                     return <div key={cell.key} className="aspect-square" />
                   }
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={cell.key}
+                      onClick={() => setSelectedDateKey(cell.key)}
                       className={[
-                        'relative flex aspect-square flex-col items-center justify-center rounded-lg text-xs sm:text-sm',
+                        'relative flex aspect-square w-full flex-col items-center justify-center rounded-lg text-xs transition sm:text-sm',
+                        selectedDateKey === cell.key
+                          ? 'ring-2 ring-sky-400/70'
+                          : 'ring-0',
                         cell.isToday
                           ? 'bg-amber-500/20 font-bold text-amber-300 ring-1 ring-amber-500/60'
                           : 'text-stone-300 hover:bg-stone-800/60',
@@ -1397,10 +1461,46 @@ export default function App() {
                           ✅
                         </span>
                       )}
-                    </div>
+                    </button>
                   )
                 })}
               </div>
+            </section>
+
+            {/* 달력에서 선택한 날짜의 연습 정보 */}
+            <section className="rounded-2xl border border-stone-700/80 bg-stone-900/80 p-4 shadow-lg shadow-black/20 sm:p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                Practice Info
+              </p>
+              <p className="mt-1 text-sm font-bold text-stone-100">
+                {formatDateLabel(selectedDateKey)}
+              </p>
+              <p className="mt-2 text-xs text-stone-400">
+                Status: {selectedDone ? 'Completed' : 'Not completed'}
+              </p>
+
+              {selectedLog ? (
+                <div className="mt-3 space-y-2 text-xs text-stone-300">
+                  <p className="text-stone-400">
+                    Total: <span className="font-semibold text-stone-200">{selectedLog.totalMinutes} min</span>
+                  </p>
+                  <ul className="space-y-1.5">
+                    {(selectedLog.steps || []).map((step) => (
+                      <li
+                        key={step.id}
+                        className="flex items-center justify-between rounded-md border border-stone-700/70 bg-stone-800/60 px-2 py-1.5"
+                      >
+                        <span className="text-stone-300">{step.title}</span>
+                        <span className="font-mono text-stone-400">{step.minutes}m</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-stone-500">
+                  저장된 연습 기록이 없습니다.
+                </p>
+              )}
             </section>
 
             <button
@@ -1682,6 +1782,23 @@ export default function App() {
                                 {scaleFocusDay
                                   ? 'Scale Focus'
                                   : `${melodyChords.join(' · ')} Chords`}
+                              </span>
+                            </>
+                          )}
+
+                          {step.id === 3 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={showFreePracticeYoutube}
+                                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-600 bg-stone-800 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-red-500/50 hover:bg-stone-700 hover:text-red-300"
+                                title="Open Free Practice YouTube playlist home"
+                              >
+                                <Video size={14} />
+                                Watch on YouTube
+                              </button>
+                              <span className="text-[10px] text-stone-500">
+                                Backing Track Playlist
                               </span>
                             </>
                           )}

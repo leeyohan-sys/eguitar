@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Mic, MicOff, X } from 'lucide-react'
 
 const NOTE_NAMES = [
@@ -33,6 +33,7 @@ const BUFFER_SIZE = 8192
 /** 기타 저음 E2(flat 포함) ~ 고음 프렛 */
 const MIN_DETECT_HZ = 55
 const MAX_DETECT_HZ = 1200
+const STABLE_MS = 600
 
 /**
  * YIN 피치 검출
@@ -129,7 +130,6 @@ function freqToNote(freq) {
     octave,
     cents,
     midi: rounded,
-    targetHz: A4 * 2 ** ((rounded - 69) / 12),
   }
 }
 
@@ -163,20 +163,33 @@ function openStringHint(freq) {
   return null
 }
 
+function centsText(cents) {
+  if (Math.abs(cents) <= IN_TUNE_CENTS) return 'OK'
+  return cents > 0 ? `+${cents.toFixed(0)}¢` : `${cents.toFixed(0)}¢`
+}
+
 /**
  * 일반 크로매틱 튜너 — 들리는 음에 바늘/음이름 표시
  */
 export default function GuitarTuner({ open, onClose }) {
+  const [mode, setMode] = useState('auto') // auto | manual
+  const [selectedString, setSelectedString] = useState('6E')
   const [listening, setListening] = useState(false)
   const [error, setError] = useState(null)
   const [level, setLevel] = useState(0)
-  const [reading, setReading] = useState(null) // { name, octave, cents, hz, hint, inTune }
+  const [reading, setReading] = useState(null) // { name, octave, cents, hz, hint, inTune, targetLabel, stable }
 
   const audioRef = useRef(null)
   const rafRef = useRef(0)
   const smoothCentsRef = useRef(null)
   const holdRef = useRef({ until: 0, value: null })
   const startGenRef = useRef(0)
+  const stableSinceRef = useRef(0)
+
+  const selectedTarget = useMemo(
+    () => OPEN_STRINGS.find((s) => s.label === selectedString) ?? OPEN_STRINGS[0],
+    [selectedString],
+  )
 
   const stopAudio = () => {
     startGenRef.current += 1
@@ -190,6 +203,7 @@ export default function GuitarTuner({ open, onClose }) {
     }
     smoothCentsRef.current = null
     holdRef.current = { until: 0, value: null }
+    stableSinceRef.current = 0
     setListening(false)
     setLevel(0)
     setReading(null)
@@ -294,22 +308,46 @@ export default function GuitarTuner({ open, onClose }) {
         if (pitch && clarityOk) {
           // 저음 개방현이 옥타브 위로 잡히면 E2/A2로 보정
           const displayHz = normalizeGuitarFreq(pitch.freq)
-          const note = freqToNote(displayHz)
-          const prev = smoothCentsRef.current
-          // 음이 바뀌면 스무딩 리셋
+          const autoNote = freqToNote(displayHz)
+          const target =
+            mode === 'manual'
+              ? selectedTarget
+              : OPEN_STRINGS.find((s) => s.label === openStringHint(pitch.freq))
           const cents =
-            prev && prev.midi === note.midi
-              ? prev.cents * 0.6 + note.cents * 0.4
-              : note.cents
-          smoothCentsRef.current = { midi: note.midi, cents }
+            mode === 'manual'
+              ? 1200 * Math.log2(displayHz / selectedTarget.freq)
+              : autoNote.cents
+
+          const prev = smoothCentsRef.current
+          const smoothingKey =
+            mode === 'manual'
+              ? `manual-${selectedTarget.label}`
+              : `auto-${autoNote.midi}`
+          // 음이 바뀌면 스무딩 리셋
+          const smoothCents =
+            prev && prev.key === smoothingKey
+              ? prev.cents * 0.62 + cents * 0.38
+              : cents
+          smoothCentsRef.current = { key: smoothingKey, cents: smoothCents }
+
+          const inTune = Math.abs(smoothCents) <= IN_TUNE_CENTS
+          if (inTune) {
+            if (!stableSinceRef.current) stableSinceRef.current = now
+          } else {
+            stableSinceRef.current = 0
+          }
+          const stable =
+            stableSinceRef.current > 0 && now - stableSinceRef.current >= STABLE_MS
 
           const next = {
-            name: note.name,
-            octave: note.octave,
-            cents,
+            name: autoNote.name,
+            octave: autoNote.octave,
+            cents: smoothCents,
             hz: displayHz,
             hint: openStringHint(pitch.freq),
-            inTune: Math.abs(cents) <= IN_TUNE_CENTS,
+            inTune,
+            stable,
+            targetLabel: target?.label ?? null,
           }
           holdRef.current = { until: now + 450, value: next }
           setReading(next)
@@ -319,6 +357,7 @@ export default function GuitarTuner({ open, onClose }) {
         } else {
           smoothCentsRef.current = null
           holdRef.current = { until: 0, value: null }
+          stableSinceRef.current = 0
           setReading(null)
         }
 
@@ -363,6 +402,7 @@ export default function GuitarTuner({ open, onClose }) {
   const clamped = Math.max(-50, Math.min(50, cents))
   const needle = ((clamped + 50) / 100) * 100
   const hasTone = reading != null
+  const targetLabel = mode === 'manual' ? selectedTarget.label : reading?.targetLabel
 
   return (
     <div
@@ -382,7 +422,9 @@ export default function GuitarTuner({ open, onClose }) {
               Guitar Tuner
             </p>
             <p className="mt-0.5 text-[11px] text-stone-500 sm:text-xs">
-              Chromatic · play any note near the mic
+              {mode === 'auto'
+                ? 'Auto mode · play any note near the mic'
+                : `Manual mode · tune to ${selectedTarget.label}`}
             </p>
           </div>
           <button
@@ -427,6 +469,56 @@ export default function GuitarTuner({ open, onClose }) {
           </button>
         </div>
 
+        {/* 튜닝 모드 / 타겟 스트링 */}
+        <div className="space-y-2 px-4 pb-2 sm:px-5">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('auto')}
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-semibold transition',
+                mode === 'auto'
+                  ? 'border-sky-400/60 bg-sky-500/15 text-sky-300'
+                  : 'border-stone-700 bg-stone-900 text-stone-400 hover:border-stone-500',
+              ].join(' ')}
+            >
+              Auto Detect
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('manual')}
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-semibold transition',
+                mode === 'manual'
+                  ? 'border-sky-400/60 bg-sky-500/15 text-sky-300'
+                  : 'border-stone-700 bg-stone-900 text-stone-400 hover:border-stone-500',
+              ].join(' ')}
+            >
+              Manual String
+            </button>
+          </div>
+
+          {mode === 'manual' && (
+            <div className="grid grid-cols-6 gap-1.5">
+              {OPEN_STRINGS.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => setSelectedString(s.label)}
+                  className={[
+                    'rounded-md border px-1 py-1.5 text-[11px] font-semibold transition',
+                    selectedString === s.label
+                      ? 'border-amber-400/70 bg-amber-500/15 text-amber-300'
+                      : 'border-stone-700 bg-stone-900 text-stone-400 hover:border-stone-500',
+                  ].join(' ')}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {error && (
           <p className="px-4 pb-2 text-xs text-red-400 sm:px-5">{error}</p>
         )}
@@ -439,6 +531,11 @@ export default function GuitarTuner({ open, onClose }) {
 
         {/* 중앙 음이름 + 바늘 */}
         <div className="flex flex-col items-center px-4 pb-6 pt-2 sm:px-5">
+          {targetLabel && (
+            <p className="mb-2 text-xs font-semibold text-amber-300/90">
+              Target: {targetLabel}
+            </p>
+          )}
           <div
             className={[
               'flex h-28 w-full items-center justify-center rounded-2xl border transition',
@@ -465,6 +562,11 @@ export default function GuitarTuner({ open, onClose }) {
                 {reading.hint && (
                   <p className="mt-1 text-xs font-semibold text-sky-400">
                     Open {reading.hint}
+                  </p>
+                )}
+                {reading.stable && (
+                  <p className="mt-1 text-[11px] font-semibold text-emerald-400">
+                    Stable in tune
                   </p>
                 )}
               </div>
@@ -509,11 +611,7 @@ export default function GuitarTuner({ open, onClose }) {
                       : 'text-amber-300'
                   }
                 >
-                  {reading.inTune
-                    ? 'OK'
-                    : cents > 0
-                      ? `+${cents.toFixed(0)}¢`
-                      : `${cents.toFixed(0)}¢`}
+                  {centsText(cents)}
                 </span>
                 <span className="text-stone-600">·</span>
                 <span className="text-stone-400">{reading.hz.toFixed(1)} Hz</span>

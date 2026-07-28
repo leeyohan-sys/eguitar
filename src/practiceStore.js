@@ -8,6 +8,7 @@ const APP_KEYS = {
   completedDates: 'completed-dates',
   timerState: 'timer-state',
   stepDurations: 'step-durations',
+  practiceLogs: 'practice-logs',
 }
 
 /** localStorage → IndexedDB 이전용 (기존 사용자 데이터 보존) */
@@ -135,6 +136,34 @@ export async function saveStepDurations(durationsMin) {
   } catch {
     // 저장 실패 시 무시
   }
+}
+
+/** 날짜별 연습 기록 불러오기 */
+export async function loadPracticeLogs() {
+  const value = await getAppValue(APP_KEYS.practiceLogs)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  return value
+}
+
+/** 날짜별 연습 기록 전체 저장 */
+export async function savePracticeLogs(logs) {
+  try {
+    await setAppValue(APP_KEYS.practiceLogs, logs)
+  } catch {
+    // 저장 실패 시 무시
+  }
+}
+
+/** 특정 날짜 연습 기록 저장 */
+export async function savePracticeLog(dateKey, log) {
+  if (!dateKey) return
+  const prev = await loadPracticeLogs()
+  await savePracticeLogs({
+    ...prev,
+    [dateKey]: log,
+  })
 }
 
 /** localStorage에 남아 있는 예전 이미지를 IndexedDB로 이전 */
