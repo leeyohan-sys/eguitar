@@ -34,6 +34,7 @@ const BUFFER_SIZE = 8192
 const MIN_DETECT_HZ = 55
 const MAX_DETECT_HZ = 1200
 const STABLE_MS = 600
+const MANUAL_RANGE_SEMITONES = 4
 
 /**
  * YIN 피치 검출
@@ -163,6 +164,46 @@ function openStringHint(freq) {
   return null
 }
 
+/** manual 모드: 선택 음 주변으로 탐지 범위 축소 */
+function getManualDetectRange(targetFreq) {
+  const ratio = 2 ** (MANUAL_RANGE_SEMITONES / 12)
+  return {
+    min: Math.max(MIN_DETECT_HZ, targetFreq / ratio),
+    max: Math.min(MAX_DETECT_HZ, targetFreq * ratio),
+  }
+}
+
+/**
+ * manual 모드: 선택 음의 하모닉(2배/3배)로 잡힌 경우 기본음으로 보정
+ * - 후보(f, f/2, f/3) 중 선택 음과 센트 차이가 가장 작은 값을 선택
+ */
+function normalizeManualFreq(freq, targetFreq) {
+  const candidates = [freq, freq / 2, freq / 3].filter(
+    (v) => v >= MIN_DETECT_HZ && v <= MAX_DETECT_HZ,
+  )
+  let best = candidates[0] ?? freq
+  let bestAbs = Infinity
+  for (const c of candidates) {
+    const abs = Math.abs(1200 * Math.log2(c / targetFreq))
+    if (abs < bestAbs) {
+      bestAbs = abs
+      best = c
+    }
+  }
+  return best
+}
+
+/** manual 모드: 저음일수록 게이트/clarity를 완화 */
+function getManualThreshold(targetFreq, noiseFloor) {
+  if (targetFreq < 100) {
+    return { gate: Math.max(0.0009, noiseFloor * 2.1), clarity: 0.28 }
+  }
+  if (targetFreq < 170) {
+    return { gate: Math.max(0.001, noiseFloor * 2.25), clarity: 0.32 }
+  }
+  return { gate: Math.max(0.0011, noiseFloor * 2.4), clarity: 0.36 }
+}
+
 function centsText(cents) {
   if (Math.abs(cents) <= IN_TUNE_CENTS) return 'OK'
   return cents > 0 ? `+${cents.toFixed(0)}¢` : `${cents.toFixed(0)}¢`
@@ -284,30 +325,42 @@ export default function GuitarTuner({ open, onClose }) {
           noiseFloor = noiseFloor * 0.95 + rms * 0.05
         }
         // 저음 개방현은 입력 레벨이 작아 게이트를 낮춤
-        const gate = Math.max(0.0012, noiseFloor * 2.5)
+        const autoGate = Math.max(0.0012, noiseFloor * 2.5)
+        const manualThreshold = getManualThreshold(selectedTarget.freq, noiseFloor)
+        const gate = mode === 'manual' ? manualThreshold.gate : autoGate
+
+        const detectRange =
+          mode === 'manual'
+            ? getManualDetectRange(selectedTarget.freq)
+            : { min: MIN_DETECT_HZ, max: MAX_DETECT_HZ }
 
         const pitch =
           rms >= gate
             ? detectPitchYin(
                 state.buf,
                 state.audioCtx.sampleRate,
-                MIN_DETECT_HZ,
-                MAX_DETECT_HZ,
+                detectRange.min,
+                detectRange.max,
               )
             : null
 
         const now = performance.now()
 
         // 저음일수록 clarity 문턱을 완화 (E2/A2)
-        const clarityOk =
-          pitch &&
-          (pitch.freq < 150
-            ? pitch.clarity >= 0.35
-            : pitch.clarity >= 0.45)
+        const clarityOk = pitch && (
+          mode === 'manual'
+            ? pitch.clarity >= manualThreshold.clarity
+            : pitch.freq < 150
+              ? pitch.clarity >= 0.35
+              : pitch.clarity >= 0.45
+        )
 
         if (pitch && clarityOk) {
           // 저음 개방현이 옥타브 위로 잡히면 E2/A2로 보정
-          const displayHz = normalizeGuitarFreq(pitch.freq)
+          const displayHz =
+            mode === 'manual'
+              ? normalizeManualFreq(pitch.freq, selectedTarget.freq)
+              : normalizeGuitarFreq(pitch.freq)
           const autoNote = freqToNote(displayHz)
           const target =
             mode === 'manual'
