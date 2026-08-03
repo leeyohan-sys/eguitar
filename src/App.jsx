@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import FretboardQuiz, { FretboardIcon } from './FretboardQuiz.jsx'
 import GuitarTuner, { TunerIcon } from './GuitarTuner.jsx'
+import TabConvert, { TabConvertIcon } from './TabConvert.jsx'
+import PlaylistPdf, { PlaylistPdfIcon } from './PlaylistPdf.jsx'
 import {
   loadAllStepImages,
   loadCompletedDates,
@@ -856,6 +858,8 @@ export default function App() {
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [showFretboardQuiz, setShowFretboardQuiz] = useState(false)
   const [showTuner, setShowTuner] = useState(false)
+  const [showTabConvert, setShowTabConvert] = useState(false)
+  const [showPlaylistPdf, setShowPlaylistPdf] = useState(false)
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey)
   const [practiceLogs, setPracticeLogs] = useState({})
 
@@ -1546,6 +1550,26 @@ export default function App() {
               <TunerIcon size={20} />
               Tuner
             </button>
+
+            {/* 악보플레이 TAB 변환 */}
+            <button
+              type="button"
+              onClick={() => setShowTabConvert(true)}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm font-bold text-amber-300 transition hover:bg-amber-500/20"
+            >
+              <TabConvertIcon size={20} />
+              TAB 변환
+            </button>
+
+            {/* 악보플레이 재생목록 → 악보 PDF */}
+            <button
+              type="button"
+              onClick={() => setShowPlaylistPdf(true)}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm font-bold text-amber-300 transition hover:bg-amber-500/20"
+            >
+              <PlaylistPdfIcon size={20} />
+              PDF 만들기
+            </button>
           </aside>
 
           {/* 타이머 + 루틴 — 모바일에서 최상단 */}
@@ -1831,6 +1855,14 @@ export default function App() {
         onClose={() => setShowFretboardQuiz(false)}
       />
       <GuitarTuner open={showTuner} onClose={() => setShowTuner(false)} />
+      <TabConvert
+        open={showTabConvert}
+        onClose={() => setShowTabConvert(false)}
+      />
+      <PlaylistPdf
+        open={showPlaylistPdf}
+        onClose={() => setShowPlaylistPdf(false)}
+      />
 
       {/* 팝업 차단 안내 */}
       {popupNotice && (
