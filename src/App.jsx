@@ -29,7 +29,9 @@ import {
 } from './practiceStore.js'
 
 /** 기본 단계 시간(분): Stroke / Scale / Melody / Free */
-const DEFAULT_STEP_DURATIONS_MIN = [10, 10, 10, 30]
+const DEFAULT_STEP_DURATIONS_MIN = [15, 15, 10, 20]
+/** 예전 기본값 → 신규 기본값으로 한 번 교체 */
+const LEGACY_DEFAULT_STEP_DURATIONS_MIN = [10, 10, 10, 30]
 const MIN_STEP_MINUTES = 1
 const MAX_STEP_MINUTES = 120
 
@@ -40,11 +42,15 @@ const STEP_IMAGE_CONFIG = {
 }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-/** 단계 시간(분) 정규화 */
+/** 단계 시간(분) 정규화 — 예전 기본값이면 신규 기본값으로 교체 */
 function normalizeStepDurations(durations) {
   if (!Array.isArray(durations) || durations.length !== 4) {
     return [...DEFAULT_STEP_DURATIONS_MIN]
   }
+  const sameAsLegacy = durations.every(
+    (value, i) => Math.round(Number(value)) === LEGACY_DEFAULT_STEP_DURATIONS_MIN[i],
+  )
+  if (sameAsLegacy) return [...DEFAULT_STEP_DURATIONS_MIN]
   return durations.map((value) => {
     const n = Math.round(Number(value))
     if (!Number.isFinite(n)) return MIN_STEP_MINUTES
@@ -370,35 +376,6 @@ function getFinishedStepIds(elapsed, endAts) {
   return endAts.map((endAt, id) => (elapsed >= endAt ? id : null)).filter(
     (id) => id !== null,
   )
-}
-
-/** 저장된 타이머 상태를 화면용 값으로 변환 */
-function hydrateTimerState(saved, totalSeconds) {
-  if (!saved) {
-    return {
-      remaining: totalSeconds,
-      running: false,
-      endAt: null,
-      notifiedEnds: [],
-    }
-  }
-  if (saved.running && saved.endAt) {
-    const rem = remainingFromEndAt(saved.endAt)
-    return {
-      remaining: Math.min(rem, totalSeconds),
-      running: rem > 0,
-      endAt: rem > 0 ? saved.endAt : null,
-      notifiedEnds: Array.isArray(saved.notifiedEnds) ? saved.notifiedEnds : [],
-    }
-  }
-  const remaining =
-    typeof saved.remaining === 'number' ? saved.remaining : totalSeconds
-  return {
-    remaining: Math.min(Math.max(0, remaining), totalSeconds),
-    running: false,
-    endAt: null,
-    notifiedEnds: Array.isArray(saved.notifiedEnds) ? saved.notifiedEnds : [],
-  }
 }
 
 /** 업로드 이미지를 적당히 축소 (IndexedDB 저장용) */
@@ -893,20 +870,42 @@ export default function App() {
       loadStepDurations(),
       loadPracticeLogs(),
     ])
-      .then(([images, dates, timer, durations, logs]) => {
+      .then(([images, dates, _timer, durations, logs]) => {
         if (cancelled) return
         const nextDurations = normalizeStepDurations(durations)
         const nextSchedule = buildStepSchedule(nextDurations)
         setStepDurationsMin(nextDurations)
+        // 예전 기본값에서 바뀐 경우 IndexedDB에도 반영
+        if (
+          Array.isArray(durations) &&
+          durations.length === 4 &&
+          durations.every(
+            (value, i) =>
+              Math.round(Number(value)) === LEGACY_DEFAULT_STEP_DURATIONS_MIN[i],
+          )
+        ) {
+          void saveStepDurations(nextDurations)
+        }
         setStepImages(images)
         setCompletedDates(dates)
         setPracticeLogs(logs)
-        const hydrated = hydrateTimerState(timer, nextSchedule.totalSeconds)
-        setRemaining(hydrated.remaining)
-        setRunning(hydrated.running)
-        setEndAt(hydrated.endAt)
-        setNotifiedEnds(hydrated.notifiedEnds)
-        notifiedRef.current = hydrated.notifiedEnds
+        // 새로고침/첫 진입: 오늘 날짜 + Step 1부터, Start 활성화
+        const freshRemaining = nextSchedule.totalSeconds
+        setSelectedDateKey(todayKey)
+        setViewYear(today.getFullYear())
+        setViewMonth(today.getMonth())
+        setRemaining(freshRemaining)
+        setRunning(false)
+        setEndAt(null)
+        setNotifiedEnds([])
+        notifiedRef.current = []
+        prevActiveStepRef.current = 0
+        void saveTimerState({
+          remaining: freshRemaining,
+          running: false,
+          endAt: null,
+          notifiedEnds: [],
+        })
         setStorageReady(true)
       })
       .catch(() => {
@@ -1051,19 +1050,6 @@ export default function App() {
     if (!win) notifyPopupBlocked()
   }, [notifyPopupBlocked])
 
-  /** 단계별 참고 이미지 새 창 닫기 */
-  const closeStepImageWindow = useCallback((stepId) => {
-    const win = stepImageWindowRefs.current[stepId]
-    if (win && !win.closed) {
-      try {
-        win.close()
-      } catch {
-        // 이미 닫힌 창은 무시
-      }
-    }
-    stepImageWindowRefs.current[stepId] = null
-  }, [])
-
   /** 악보 멜로디 연습 유튜브 (autoOpenFirst: 3단계 시작 시 첫 코드/스케일 자동 열기) */
   const showMelodyYoutube = useCallback((autoOpenFirst = false) => {
     const day = today.getDate()
@@ -1114,7 +1100,7 @@ export default function App() {
     if (!win) notifyPopupBlocked()
   }, [notifyPopupBlocked])
 
-  // 타이머 진행 중 단계 진입 시: 이전 이미지 창 닫고 현재 단계 자료 자동 열기
+  // 타이머 진행 중 단계 진입 시: 현재 단계 자료를 열고, 기존 팝업은 유지
   useEffect(() => {
     if (!running) {
       prevActiveStepRef.current = activeStep
@@ -1124,24 +1110,19 @@ export default function App() {
     const prev = prevActiveStepRef.current
     if (prev === activeStep) return
 
-    // 2단계 진입: 1단계 이미지 닫고 → 2단계 이미지 열기
+    // 2단계 진입: 스케일 이미지 열기 (1단계 창은 그대로)
     if (activeStep === 1 && prev !== 1) {
-      closeStepImageWindow(0)
       const img = stepImages[1]
       if (img) showStepImage(1, img, steps[1].title)
     }
 
-    // 3단계 진입: 2단계 이미지 닫고 → 유튜브 보기 열기
+    // 3단계 진입: 멜로디 유튜브 열기
     if (activeStep === 2 && prev !== 2) {
-      closeStepImageWindow(0)
-      closeStepImageWindow(1)
       showMelodyYoutube(true)
     }
 
     // 4단계 진입: 자유 연습용 유튜브 열기
     if (activeStep === 3 && prev !== 3) {
-      closeStepImageWindow(0)
-      closeStepImageWindow(1)
       showFreePracticeYoutube()
     }
 
@@ -1154,7 +1135,6 @@ export default function App() {
     showStepImage,
     showMelodyYoutube,
     showFreePracticeYoutube,
-    closeStepImageWindow,
   ])
 
   const handleStartPause = () => {
@@ -1169,19 +1149,14 @@ export default function App() {
       setEndAt(nextEndAt)
       setRunning(true)
 
-      // 현재 단계에 맞는 참고 창만 열기 (이전 단계 창은 닫음)
+      // 현재 단계 참고 창 열기 (이미 열린 이전 단계 창은 닫지 않음)
       if (currentStep === 0) {
         if (stepImage) showStepImage(0, stepImage, steps[0].title)
       } else if (currentStep === 1) {
-        closeStepImageWindow(0)
         if (stepImage) showStepImage(1, stepImage, steps[1].title)
       } else if (currentStep === 2) {
-        closeStepImageWindow(0)
-        closeStepImageWindow(1)
         showMelodyYoutube(true)
       } else if (currentStep === 3) {
-        closeStepImageWindow(0)
-        closeStepImageWindow(1)
         showFreePracticeYoutube()
       }
 
@@ -1242,7 +1217,7 @@ export default function App() {
     void saveStepDurations(nextDurations)
   }
 
-  /** 기본 시간(10/10/10/30)으로 복원 */
+  /** 기본 시간(15/15/10/20)으로 복원 */
   const handleResetDurations = () => {
     if (running) return
     const nextDurations = [...DEFAULT_STEP_DURATIONS_MIN]
@@ -1658,7 +1633,7 @@ export default function App() {
                   onClick={handleResetDurations}
                   disabled={running}
                   className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] text-stone-500 hover:bg-stone-800 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Reset to 10 / 10 / 10 / 30 min"
+                  title="Reset to 15 / 15 / 10 / 20 min"
                 >
                   Reset times
                 </button>
