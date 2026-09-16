@@ -197,36 +197,21 @@ function getFullscreenPopupFeatures() {
   ].join(',')
 }
 
-/** 유튜브 watch 페이지를 새 창으로 직접 열기 (플레이리스트 표시) */
+/** 유튜브 watch 페이지를 일반 브라우저 창(탭)으로 열기 (플레이리스트 표시) */
 function openYoutubeWatchWindow(existingWindow, watchUrl, windowName = 'eguitar-youtube') {
-  const features = getFullscreenPopupFeatures()
-
   if (existingWindow && !existingWindow.closed) {
     existingWindow.location.href = watchUrl
     existingWindow.focus()
-    try {
-      existingWindow.moveTo(0, 0)
-      existingWindow.resizeTo(window.screen.availWidth, window.screen.availHeight)
-    } catch {
-      // 일부 브라우저는 창 크기 조절 제한
-    }
     return existingWindow
   }
 
-  const popup = window.open(watchUrl, windowName, features)
+  const popup = window.open(watchUrl, windowName)
   if (!popup) {
     window.alert(POPUP_BLOCKED_MSG)
     return null
   }
 
   popup.focus()
-  try {
-    popup.moveTo(0, 0)
-    popup.resizeTo(window.screen.availWidth, window.screen.availHeight)
-  } catch {
-    // 일부 브라우저는 창 크기 조절 제한
-  }
-
   return popup
 }
 
